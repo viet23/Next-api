@@ -1,9 +1,12 @@
-import {MigrationInterface, QueryRunner} from "typeorm";
+import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class initDb1749659477279 implements MigrationInterface {
     name = 'initDb1749659477279'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`
+  CREATE TYPE "public"."tbl_customers_gender_enum" AS ENUM ('M', 'F');
+`);
         await queryRunner.query(`CREATE TABLE "tbl_case" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "code" character varying NOT NULL, "url_video" character varying, "caption" character varying, "updated_by_id" character varying, CONSTRAINT "UQ_bf606aff0fea5633b29c55df8aa" UNIQUE ("code"), CONSTRAINT "PK_d9ac14d9e24c291247e176375f9" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "tbl_role" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "name" character varying NOT NULL, "description" character varying, CONSTRAINT "UQ_9202294311d3253394ec1a84c99" UNIQUE ("name"), CONSTRAINT "PK_7fb8c467d6259854a09dd60c109" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "tbl_users" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "username" character varying NOT NULL, "phone" character varying, "extension" character varying, "full_name" character varying, "password" character varying NOT NULL, "is_active" boolean NOT NULL DEFAULT false, CONSTRAINT "UQ_22e9c745c648bad6b39c5d5b58e" UNIQUE ("username"), CONSTRAINT "UQ_ba82e71e58933be15e3e35066e0" UNIQUE ("phone"), CONSTRAINT "PK_bb1d884179b3e42514b36c01e4e" PRIMARY KEY ("id"))`);
