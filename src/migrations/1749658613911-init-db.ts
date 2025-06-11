@@ -1,60 +1,46 @@
 import {MigrationInterface, QueryRunner} from "typeorm";
 
-export class initDb1749043782235 implements MigrationInterface {
-    name = 'initDb1749043782235'
+export class initDb1749658613911 implements MigrationInterface {
+    name = 'initDb1749658613911'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`CREATE TABLE "tbl_role" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "name" character varying NOT NULL, "description" character varying, CONSTRAINT "UQ_9202294311d3253394ec1a84c99" UNIQUE ("name"), CONSTRAINT "PK_7fb8c467d6259854a09dd60c109" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "tbl_group" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "name" character varying NOT NULL, "description" character varying, CONSTRAINT "UQ_876dc7f82f7298f9377cb8956ce" UNIQUE ("name"), CONSTRAINT "PK_f3a01958f3d250451e0e77a1d8e" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE TABLE "customers" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "customer_id" bigint NOT NULL, "customer_ref_id" character varying, "customer_name" character varying, "status" smallint NOT NULL, "phone_no" character varying, "available_balance" numeric(32,3) NOT NULL DEFAULT '0', "postal_code" character varying, "email" character varying, "customer_type" character varying, "date_of_birth" character varying, "gender" character varying, "created_date" character varying, "approved_date" character varying, "last_update_time" character varying, "unlink_bank" character varying(10) DEFAULT '', "relink_bank" character varying(10) DEFAULT '', "is_suspect" "public"."customers_is_suspect_enum" NOT NULL DEFAULT '0', "scan_date" TIMESTAMP WITH TIME ZONE, CONSTRAINT "UQ_6c444ce6637f2c1d71c3cf136c1" UNIQUE ("customer_id"), CONSTRAINT "PK_133ec679a801fab5e070f73d3ea" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE TABLE "tbl_case" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "code" character varying NOT NULL, "title" character varying, "description" character varying, "status" "public"."tbl_case_status_enum" DEFAULT 'NEW', "solution" character varying, "contact_info" character varying, "receive_date" TIMESTAMP WITH TIME ZONE, "problem_type" character varying, "internal_state" character varying, "handler" character varying, "customer_name" character varying, "feature" character varying, "feature_details" character varying, "processing_plan" character varying, "department" character varying, "handling_date" TIMESTAMP WITH TIME ZONE, "call_content" character varying, "note" character varying, "close_date" TIMESTAMP WITH TIME ZONE, "receive_channel" character varying, "updated_by_id" character varying, "otp" character varying, "assigned_by_id" uuid, CONSTRAINT "UQ_bf606aff0fea5633b29c55df8aa" UNIQUE ("code"), CONSTRAINT "PK_d9ac14d9e24c291247e176375f9" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "tbl_users" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "username" character varying NOT NULL, "phone" character varying, "extension" character varying, "full_name" character varying, "password" character varying NOT NULL, "is_active" boolean NOT NULL DEFAULT false, CONSTRAINT "UQ_22e9c745c648bad6b39c5d5b58e" UNIQUE ("username"), CONSTRAINT "UQ_ba82e71e58933be15e3e35066e0" UNIQUE ("phone"), CONSTRAINT "PK_bb1d884179b3e42514b36c01e4e" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "case_history" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "ticket_id" character varying, "old_data" jsonb, "new_data" jsonb, "updated_by_id" uuid, "action" "public"."case_history_action_enum" NOT NULL, CONSTRAINT "PK_c3afb6b822ee2a4b1602b33d595" PRIMARY KEY ("id"))`);
-        await queryRunner.query(`CREATE TABLE "gpay_bankcode_master" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "bank_id" integer NOT NULL, "bank_name" character varying, "gpay_bank_code" character varying, CONSTRAINT "UQ_acb21121290b5710ebd0d0c28da" UNIQUE ("bank_id"), CONSTRAINT "PK_50864a50087373fa53ea6eb6bb8" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "tbl_case" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "code" character varying NOT NULL, "url_video" character varying, "caption" character varying, "updated_by_id" character varying, CONSTRAINT "UQ_bf606aff0fea5633b29c55df8aa" UNIQUE ("code"), CONSTRAINT "PK_d9ac14d9e24c291247e176375f9" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "tbl_customers" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "customer_id" bigint NOT NULL, "full_name" character varying NOT NULL, "phone" character varying NOT NULL, "email" character varying, "date_of_birth" date, "gender" "public"."tbl_customers_gender_enum" DEFAULT 'M', "register_date" TIMESTAMP, "kyc_date" TIMESTAMP, "is_suspect" "public"."tbl_customers_is_suspect_enum" NOT NULL DEFAULT '0', "scan_date" TIMESTAMP WITH TIME ZONE, CONSTRAINT "UQ_374ee93a6b983572078b1ae8cbb" UNIQUE ("customer_id"), CONSTRAINT "PK_b4be48012ba704d9dd68114c270" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "customers" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "customer_id" bigint NOT NULL, "customer_ref_id" character varying, "customer_name" character varying, "status" smallint NOT NULL, "phone_no" character varying, "available_balance" numeric(32,3) NOT NULL DEFAULT '0', "postal_code" character varying, "email" character varying, "customer_type" character varying, "date_of_birth" character varying, "gender" character varying, "created_date" character varying, "approved_date" character varying, "last_update_time" character varying, "unlink_bank" character varying(10) DEFAULT '', "relink_bank" character varying(10) DEFAULT '', "is_suspect" "public"."customers_is_suspect_enum" NOT NULL DEFAULT '0', "scan_date" TIMESTAMP WITH TIME ZONE, CONSTRAINT "UQ_6c444ce6637f2c1d71c3cf136c1" UNIQUE ("customer_id"), CONSTRAINT "PK_133ec679a801fab5e070f73d3ea" PRIMARY KEY ("id"))`);
         await queryRunner.query(`CREATE TABLE "group_role" ("role_id" uuid NOT NULL, "group_id" uuid NOT NULL, CONSTRAINT "PK_34b9a049ae09a85e87e7f18787b" PRIMARY KEY ("role_id", "group_id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_23e6ccf814c8fb5704dc35bda8" ON "group_role" ("role_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_e9d49994467a645560fce4bcca" ON "group_role" ("group_id") `);
         await queryRunner.query(`CREATE TABLE "group_user" ("group_id" uuid NOT NULL, "user_id" uuid NOT NULL, CONSTRAINT "PK_8c8ce37e281754b6d2b50af9561" PRIMARY KEY ("group_id", "user_id"))`);
         await queryRunner.query(`CREATE INDEX "IDX_d339f18d53e39b898da78bbabb" ON "group_user" ("group_id") `);
         await queryRunner.query(`CREATE INDEX "IDX_0837be536f0f518052a7bef2e0" ON "group_user" ("user_id") `);
-        await queryRunner.query(`CREATE TABLE "customer_case" ("customer_id" uuid NOT NULL, "case_id" uuid NOT NULL, CONSTRAINT "PK_f0d40423877603684608e14115c" PRIMARY KEY ("customer_id", "case_id"))`);
-        await queryRunner.query(`CREATE INDEX "IDX_3adbc1f55ea8241bb22df34fb1" ON "customer_case" ("customer_id") `);
-        await queryRunner.query(`CREATE INDEX "IDX_8077cd8dcc32f1c619893ec531" ON "customer_case" ("case_id") `);
-        await queryRunner.query(`ALTER TABLE "tbl_case" ADD CONSTRAINT "FK_c24fd32146b7cf499f833c936c5" FOREIGN KEY ("assigned_by_id") REFERENCES "tbl_users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "case_history" ADD CONSTRAINT "FK_24377f20f28b28a882e11166e01" FOREIGN KEY ("updated_by_id") REFERENCES "tbl_users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "group_role" ADD CONSTRAINT "FK_23e6ccf814c8fb5704dc35bda8d" FOREIGN KEY ("role_id") REFERENCES "tbl_role"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
         await queryRunner.query(`ALTER TABLE "group_role" ADD CONSTRAINT "FK_e9d49994467a645560fce4bcca4" FOREIGN KEY ("group_id") REFERENCES "tbl_group"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "group_user" ADD CONSTRAINT "FK_d339f18d53e39b898da78bbabba" FOREIGN KEY ("group_id") REFERENCES "tbl_group"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
         await queryRunner.query(`ALTER TABLE "group_user" ADD CONSTRAINT "FK_0837be536f0f518052a7bef2e04" FOREIGN KEY ("user_id") REFERENCES "tbl_users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
-        await queryRunner.query(`ALTER TABLE "customer_case" ADD CONSTRAINT "FK_3adbc1f55ea8241bb22df34fb12" FOREIGN KEY ("customer_id") REFERENCES "customers"("id") ON DELETE CASCADE ON UPDATE CASCADE`);
-        await queryRunner.query(`ALTER TABLE "customer_case" ADD CONSTRAINT "FK_8077cd8dcc32f1c619893ec5315" FOREIGN KEY ("case_id") REFERENCES "tbl_case"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
-        await queryRunner.query(`ALTER TABLE "customer_case" DROP CONSTRAINT "FK_8077cd8dcc32f1c619893ec5315"`);
-        await queryRunner.query(`ALTER TABLE "customer_case" DROP CONSTRAINT "FK_3adbc1f55ea8241bb22df34fb12"`);
         await queryRunner.query(`ALTER TABLE "group_user" DROP CONSTRAINT "FK_0837be536f0f518052a7bef2e04"`);
         await queryRunner.query(`ALTER TABLE "group_user" DROP CONSTRAINT "FK_d339f18d53e39b898da78bbabba"`);
         await queryRunner.query(`ALTER TABLE "group_role" DROP CONSTRAINT "FK_e9d49994467a645560fce4bcca4"`);
         await queryRunner.query(`ALTER TABLE "group_role" DROP CONSTRAINT "FK_23e6ccf814c8fb5704dc35bda8d"`);
         await queryRunner.query(`ALTER TABLE "case_history" DROP CONSTRAINT "FK_24377f20f28b28a882e11166e01"`);
-        await queryRunner.query(`ALTER TABLE "tbl_case" DROP CONSTRAINT "FK_c24fd32146b7cf499f833c936c5"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_8077cd8dcc32f1c619893ec531"`);
-        await queryRunner.query(`DROP INDEX "public"."IDX_3adbc1f55ea8241bb22df34fb1"`);
-        await queryRunner.query(`DROP TABLE "customer_case"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_0837be536f0f518052a7bef2e0"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_d339f18d53e39b898da78bbabb"`);
         await queryRunner.query(`DROP TABLE "group_user"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_e9d49994467a645560fce4bcca"`);
         await queryRunner.query(`DROP INDEX "public"."IDX_23e6ccf814c8fb5704dc35bda8"`);
         await queryRunner.query(`DROP TABLE "group_role"`);
+        await queryRunner.query(`DROP TABLE "customers"`);
         await queryRunner.query(`DROP TABLE "tbl_customers"`);
-        await queryRunner.query(`DROP TABLE "gpay_bankcode_master"`);
+        await queryRunner.query(`DROP TABLE "tbl_case"`);
         await queryRunner.query(`DROP TABLE "case_history"`);
         await queryRunner.query(`DROP TABLE "tbl_users"`);
-        await queryRunner.query(`DROP TABLE "tbl_case"`);
-        await queryRunner.query(`DROP TABLE "customers"`);
         await queryRunner.query(`DROP TABLE "tbl_group"`);
         await queryRunner.query(`DROP TABLE "tbl_role"`);
     }
