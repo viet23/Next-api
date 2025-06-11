@@ -2,8 +2,6 @@ import { Entity, Column, BeforeInsert, ManyToMany, JoinTable, OneToMany } from '
 import { createHmac } from 'crypto'
 import { BaseEntity } from './base.entity'
 import { Group } from './group.entity'
-import { Case } from './case.entity'
-import { CaseHistory } from './case-history.entity'
 
 @Entity({ name: 'tbl_users' })
 export class User extends BaseEntity {
@@ -38,8 +36,6 @@ export class User extends BaseEntity {
   @Column({ name: 'is_active', default: false })
   isActive: boolean
 
-  @OneToMany(() => CaseHistory, (caseHistory) => caseHistory.updateBy)
-  caseHistory: CaseHistory[]
 
-  
+
 }

@@ -1,7 +1,6 @@
 import { Column, Entity, JoinTable, ManyToMany, OneToMany } from 'typeorm'
 import { BaseEntity } from './base.entity'
 import { IsSusPectEnum } from '@common/enums/suspect.enum'
-import { Case } from './case.entity'
 
 
 @Entity({ name: 'customers' })

@@ -14,8 +14,6 @@ import { GetUserCasesQueryHandler } from './cqrs/queries/handler/get-users.handl
 import { User } from '@models/user.entity'
 import { ExportCasesQueryHandler } from './cqrs/queries/handler/export-case.handler'
 import { DetailCaseQueryHandler } from './cqrs/queries/handler/detail-case.handler'
-import { CaseHistory } from '@models/case-history.entity'
-import { CaseSubscriber } from 'src/subscribers/case.subscriber'
 import { ReportCaseQueryHandler } from './cqrs/queries/handler/report-case.handler'
 import { ExportReportCasesQueryHandler } from './cqrs/queries/handler/export-report-case.handler'
 import { ReceptionReportCaseQueryHandler } from './cqrs/queries/handler/reception-report-case.handler'
@@ -36,9 +34,9 @@ const QueriesHandler = [
 ]
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Case, GtelpayCustomer, User, CaseHistory]), CqrsModule],
+  imports: [TypeOrmModule.forFeature([Case, GtelpayCustomer, User]), CqrsModule],
   controllers: [CaseController],
   exports: [],
-  providers: [...QueriesHandler, ...CommandHandlers, CaseSubscriber],
+  providers: [...QueriesHandler, ...CommandHandlers],
 })
 export class CaseModule { }
