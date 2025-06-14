@@ -18,6 +18,8 @@ import { join } from 'path'
 import { ScheduleModule } from '@nestjs/schedule'
 import { UsersModule } from '@modules/users/users.module'
 import { CaseModule } from '@modules/case/case.module'
+import  session  from 'express-session'
+import { FacebookStrategy } from './modules/auth/facebook.strategy'
 
 @Module({
   imports: [
@@ -59,14 +61,14 @@ import { CaseModule } from '@modules/case/case.module'
     CaseModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, FacebookStrategy],
 })
 export class AppModule implements OnModuleInit {
   constructor(
     private readonly connection: Connection,
     private readonly container: ModulesContainer,
     private readonly reflector: Reflector,
-  ) {}
+  ) { }
 
   onModuleInit() {
     const subscribers = [...this.container.values()]
@@ -89,5 +91,15 @@ export class AppModule implements OnModuleInit {
     })
   }
 
-  configure(consumer: MiddlewareConsumer) {}
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(
+        session({
+          secret: 'facebook-secret',
+          resave: false,
+          saveUninitialized: false,
+        })
+      )
+      .forRoutes('*')
+  }
 }

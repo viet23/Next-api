@@ -14,27 +14,6 @@ export class GetCaseQueryHandler implements IQueryHandler<GetCaseQuery> {
     const { filter } = q
     const query = await this.caseRepo
       .createQueryBuilder('case')
-      .leftJoinAndSelect('case.customers', 'customers')
-      .leftJoinAndSelect('case.assignedBy', 'assignedBy')
-    if (filter?.where) {
-      const { where } = filter
-      where?.phoneOrEmail && query.andWhere('case.contactInfo =:contactInfo', { contactInfo: where.phoneOrEmail })
-      where?.ticketCode && query.andWhere('case.code =:code', { code: where.ticketCode })
-      where?.feature && query.andWhere('case.feature =:feature', { feature: where.feature })
-      where?.issueType && query.andWhere('case.problemType =:problemType', { problemType: where.issueType })
-      where?.receiver &&
-        query.andWhere('unaccent(assignedBy.fullName) ILIKE unaccent(:assignBy)', { assignBy: `%${where.receiver}%` })
-      where?.department && query.andWhere('case.department =:department', { department: where.department })
-      where?.ticketStatus && query.andWhere('case.internalState =:internalState', { internalState: where.ticketStatus })
-      where?.startDate &&
-        query.andWhere('case.createdAt >= :startDate', {
-          startDate: moment(where.startDate).startOf('day').format(formatDateTime),
-        })
-      where?.endDate &&
-        query.andWhere('case.createdAt <= :endDate', {
-          endDate: moment(where.endDate).endOf('day').format(formatDateTime),
-        })
-    }
 
     if (filter?.pageSize && filter?.page) {
       const pageSize = filter?.pageSize

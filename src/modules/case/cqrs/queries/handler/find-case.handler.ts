@@ -13,8 +13,6 @@ export class FindCaseQueryHandler implements IQueryHandler<FindCaseQuery> {
     const { id } = q
     const caseData = await this.caseRepo
       .createQueryBuilder('case')
-      .leftJoinAndSelect('case.customers', 'customers')
-      .leftJoinAndSelect('case.assignedBy', 'assignedBy')
       .where('case.id=:id', { id: id })
       .getOne()
     return caseData

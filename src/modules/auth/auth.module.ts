@@ -17,6 +17,7 @@ import { CookieAuthGuard } from './cookie-auth.guard'
 import { GetCurrentUserQueryHandler } from './cqrs/queries/handler/get-current-user.handler'
 import { Group } from '@models/group.entity'
 import { SamlGtelpayStrategy } from './saml-gtelpay.strategy'
+import { UsersModule } from '@modules/users/users.module'
 const CommandHandlers = [SignUpUserCommandHandler, SamlSigninUserCommandHandler]
 const QueriesHandler = [
   GetUserAuthQueryHandler,
@@ -28,6 +29,7 @@ const QueriesHandler = [
   imports: [
     TypeOrmModule.forFeature([User, Group]),
     PassportModule,
+    UsersModule,
     JwtModule.register({
       secret: jwtConstants.secret,
       signOptions: { expiresIn: '2592000s' },

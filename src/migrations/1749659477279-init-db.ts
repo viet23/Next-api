@@ -12,7 +12,7 @@ export class initDb1749659477279 implements MigrationInterface {
   CREATE TYPE "public"."tbl_customers_is_suspect_enum" AS ENUM ('0', '1');
 `);
 
-await queryRunner.query(`
+        await queryRunner.query(`
   CREATE TYPE "public"."customers_is_suspect_enum" AS ENUM ('0', '1');
 `);
         await queryRunner.query(`CREATE TABLE "tbl_case" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "code" character varying NOT NULL, "url_video" character varying, "caption" character varying, "updated_by_id" character varying, CONSTRAINT "UQ_bf606aff0fea5633b29c55df8aa" UNIQUE ("code"), CONSTRAINT "PK_d9ac14d9e24c291247e176375f9" PRIMARY KEY ("id"))`);

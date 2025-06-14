@@ -20,6 +20,9 @@ export class User extends BaseEntity {
   @Column({ name: 'password' })
   password: string
 
+  @Column({ name: 'facebook_id', nullable: true, unique: true })
+  facebookId: string;
+
   @BeforeInsert()
   encryptPassword(): void {
     this.password = createHmac('sha256', this.password).digest('hex')

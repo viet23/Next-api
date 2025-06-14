@@ -54,8 +54,6 @@ export class CaseController {
   // @UseGuards(JwtAuthGuard)
   // @Roles(RoleEnum.GET_CASE)
   async find(@Query() query: CaseManyDto): Promise<any> {
-    console.log('vvvvvvvvvv', query);
-    
     const { filter } = query
     return this.queryBus.execute(new GetCaseQuery(filter))
   }
@@ -127,15 +125,15 @@ export class CaseController {
   }
 
   @Get(':id')
-  @UseGuards(JwtAuthGuard)
+  // @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'id' })
   async findById(@Param('id', ParseUUIDPipe) id: string): Promise<Case> {
     return this.queryBus.execute(new FindCaseQuery(id))
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard)
-  @Roles(RoleEnum.CREATE_CASE)
+  // @UseGuards(JwtAuthGuard)
+  // @Roles(RoleEnum.CREATE_CASE)
   @ApiBody({ type: CaseDTO })
   async creates(@Body() creates: CaseDTO , @Authen() user: User): Promise<any> {
     return this.commandBus.execute(new CreateCaseCommand(creates , user))
