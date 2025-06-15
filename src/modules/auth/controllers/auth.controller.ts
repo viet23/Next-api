@@ -62,6 +62,46 @@ export class AuthController {
     `);
   }
 
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  async googleLogin() {
+    // Google sẽ tự redirect
+  }
+
+  @Get('google/callback')
+  @UseGuards(AuthGuard('google'))
+  async googleCallback(@Req() req, @Res() res: Response) {
+    const user = req.user;
+    this.usersService.findOrCreateFromGoogle(user)
+
+    const token = await this.jwtService.signAsync({ email: user.email });
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(`
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <meta http-equiv="Cross-Origin-Opener-Policy" content="same-origin-allow-popups">
+      <title>Login successful</title>
+      <script>
+        (function() {
+          const data = ${JSON.stringify({ token, user })};
+          if (window.opener) {
+            window.opener.postMessage(data, '*');
+            window.close();
+          } else {
+            document.body.innerText = "Không tìm thấy cửa sổ cha.";
+          }
+        })();
+      </script>
+    </head>
+    <body></body>
+  </html>
+`);
+
+  }
+
+
   // ==== Các phần đăng nhập SAML giữ nguyên ====
 
   @Get('saml/login')

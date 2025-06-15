@@ -18,6 +18,7 @@ import { GetCurrentUserQueryHandler } from './cqrs/queries/handler/get-current-u
 import { Group } from '@models/group.entity'
 import { SamlGtelpayStrategy } from './saml-gtelpay.strategy'
 import { UsersModule } from '@modules/users/users.module'
+import { GoogleStrategy } from './google.strategy'
 const CommandHandlers = [SignUpUserCommandHandler, SamlSigninUserCommandHandler]
 const QueriesHandler = [
   GetUserAuthQueryHandler,
@@ -36,7 +37,7 @@ const QueriesHandler = [
     }),
     CqrsModule,
   ],
-  providers: [...CommandHandlers, ...QueriesHandler, JwtStrategy, SamlStrategy, SamlGtelpayStrategy, CookieAuthGuard],
+  providers: [...CommandHandlers, ...QueriesHandler, JwtStrategy, SamlStrategy, SamlGtelpayStrategy, CookieAuthGuard ,GoogleStrategy],
   exports: [],
   controllers: [AuthController],
 })

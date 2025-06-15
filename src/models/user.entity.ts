@@ -23,6 +23,16 @@ export class User extends BaseEntity {
   @Column({ name: 'facebook_id', nullable: true, unique: true })
   facebookId: string;
 
+  @Column({ name: 'email', nullable: true, unique: true })
+  email: string;
+
+  @Column({ name: 'avatar', nullable: true })
+  avatar: string;
+
+  @Column({ name: 'provider', nullable: true })
+  provider: string;
+
+
   @BeforeInsert()
   encryptPassword(): void {
     this.password = createHmac('sha256', this.password).digest('hex')

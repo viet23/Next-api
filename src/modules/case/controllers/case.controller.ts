@@ -10,6 +10,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common'
@@ -51,9 +52,9 @@ export class CaseController {
   ) {}
 
   @Get()
-  // @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   // @Roles(RoleEnum.GET_CASE)
-  async find(@Query() query: CaseManyDto): Promise<any> {
+  async find(@Query() query: CaseManyDto, @Req() req: Request): Promise<any> {
     const { filter } = query
     return this.queryBus.execute(new GetCaseQuery(filter))
   }

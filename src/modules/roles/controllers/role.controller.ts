@@ -20,7 +20,7 @@ import { GetRoleUserQuery } from '../cqrs/queries/impl/get-role-user.query'
 
 @Controller('roles')
 @ApiTags('roles')
-// @UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class RolesController {
   constructor(
     private readonly queryBus: QueryBus,
