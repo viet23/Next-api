@@ -71,10 +71,10 @@ export class AuthController {
   @Get('google/callback')
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Req() req, @Res() res: Response) {
-    const user = req.user;
-    this.usersService.findOrCreateFromGoogle(user)
+    
+   const user = await this.usersService.findOrCreateFromGoogle(req.user)
 
-    const token = await this.jwtService.signAsync({ email: user.email });
+    const token = await this.jwtService.signAsync({ email: req.user.email });
 
     res.setHeader('Content-Type', 'text/html');
     res.send(`
