@@ -14,6 +14,12 @@ export class User extends BaseEntity {
   @Column({ name: 'extension', nullable: true })
   extension: string
 
+  @Column({ name: 'access_token', nullable: true })
+  accessToken: string
+
+  @Column({ name: 'id_page', nullable: true })
+  idPage: string
+
   @Column({ name: 'full_name', nullable: true })
   fullName: string
 

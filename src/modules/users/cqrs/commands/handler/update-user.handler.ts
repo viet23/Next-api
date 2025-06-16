@@ -7,7 +7,7 @@ import { UnauthorizedException } from '@nestjs/common'
 
 @CommandHandler(UpdateUserCommand)
 export class UpdateUserCommandHandler implements ICommandHandler<UpdateUserCommand> {
-  constructor(@InjectRepository(User) private readonly userRepo: Repository<User>) {}
+  constructor(@InjectRepository(User) private readonly userRepo: Repository<User>) { }
   async execute(command: UpdateUserCommand): Promise<User> {
     const { userId, dto } = command
     let user = await this.userRepo.findOne(userId)
@@ -17,6 +17,8 @@ export class UpdateUserCommandHandler implements ICommandHandler<UpdateUserComma
     user.phone = dto.phone
     user.extension = dto.extension
     user.isActive = dto.isActive
+    user.idPage = dto.idPage
+    user.accessToken = dto.accessToken
     return this.userRepo.save(user)
   }
 }

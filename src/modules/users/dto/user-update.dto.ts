@@ -9,6 +9,12 @@ export class UserUpdateDTO {
   extension: string
 
   @ApiProperty()
+  idPage: string
+
+  @ApiProperty()
+  accessToken: string
+
+  @ApiProperty()
   isActive: boolean
 
   @ApiProperty()
