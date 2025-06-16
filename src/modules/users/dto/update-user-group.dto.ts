@@ -12,4 +12,10 @@ export class UpdateUserGroupDto {
 
   @ApiProperty()
   isActive: boolean
+
+  @ApiProperty()
+  idPage: string
+
+  @ApiProperty()
+  accessToken: string
 }
