@@ -42,9 +42,10 @@ import { FilterReportCaseDto } from '../dto/filter-report.dto'
 import { ExportReportCasesQuery } from '../cqrs/queries/impl/export-report-case.query'
 import { ReceptionReportCaseQuery } from '../cqrs/queries/impl/reception-report-case.query'
 import { ExportReportReceptionCasesQuery } from '../cqrs/queries/impl/export-reception-report-case.query'
-import { CreateAnalysisFbDto } from '../dto/Analysis.dto'
+
 import { CreateAnalysisFbCommand } from '../cqrs/commands/impl/create-anl.command'
 import { GetAnalysisFbQuery } from '../cqrs/queries/impl/get-anl.query'
+import { CreateAnalysisFbDto } from '../dto/case-analysis.dto'
 
 @Controller('case')
 @ApiTags('case')
