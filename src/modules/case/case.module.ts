@@ -18,7 +18,10 @@ import { ReportCaseQueryHandler } from './cqrs/queries/handler/report-case.handl
 import { ExportReportCasesQueryHandler } from './cqrs/queries/handler/export-report-case.handler'
 import { ReceptionReportCaseQueryHandler } from './cqrs/queries/handler/reception-report-case.handler'
 import { ExportReportReceptionCasesQueryHandler } from './cqrs/queries/handler/export-reception-report-case.handler'
-const CommandHandlers = [CreateCaseCommandHandler, UpdateCaseCommandHandler, DeleteCaseCommandHandler]
+import { CreateAnalysisFbCommandHandler } from './cqrs/commands/handler/create-anl.handler'
+import { AnalysisFb } from '@models/analysis-fb.entity'
+import { GetAnalysisFbQueryHandler } from './cqrs/queries/handler/get-anl.handler'
+const CommandHandlers = [CreateCaseCommandHandler, UpdateCaseCommandHandler, DeleteCaseCommandHandler, CreateAnalysisFbCommandHandler]
 
 const QueriesHandler = [
   GetCaseQueryHandler,
@@ -30,11 +33,13 @@ const QueriesHandler = [
   DetailCaseQueryHandler,
   ExportReportCasesQueryHandler,
   ReceptionReportCaseQueryHandler,
-  ExportReportReceptionCasesQueryHandler
+  ExportReportReceptionCasesQueryHandler,
+  GetAnalysisFbQueryHandler
+
 ]
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Case, GtelpayCustomer, User]), CqrsModule],
+  imports: [TypeOrmModule.forFeature([Case, GtelpayCustomer, User, AnalysisFb]), CqrsModule],
   controllers: [CaseController],
   exports: [],
   providers: [...QueriesHandler, ...CommandHandlers],

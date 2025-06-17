@@ -42,6 +42,9 @@ import { FilterReportCaseDto } from '../dto/filter-report.dto'
 import { ExportReportCasesQuery } from '../cqrs/queries/impl/export-report-case.query'
 import { ReceptionReportCaseQuery } from '../cqrs/queries/impl/reception-report-case.query'
 import { ExportReportReceptionCasesQuery } from '../cqrs/queries/impl/export-reception-report-case.query'
+import { CreateAnalysisFbDto } from '../dto/Analysis.dto'
+import { CreateAnalysisFbCommand } from '../cqrs/commands/impl/create-anl.command'
+import { GetAnalysisFbQuery } from '../cqrs/queries/impl/get-anl.query'
 
 @Controller('case')
 @ApiTags('case')
@@ -57,6 +60,15 @@ export class CaseController {
   async find(@Query() query: CaseManyDto, @Req() req: Request): Promise<any> {
     const { filter } = query
     return this.queryBus.execute(new GetCaseQuery(filter))
+  }
+
+  @Get('analysis')
+  @UseGuards(JwtAuthGuard)
+  // @Roles(RoleEnum.GET_CASE)
+  async findAnalysis( @Authen() user: User): Promise<any> {
+    console.log(`user-----------`,user);
+    
+    return this.queryBus.execute(new GetAnalysisFbQuery(user))
   }
 
   @Post('detail')
@@ -138,6 +150,16 @@ export class CaseController {
   @ApiBody({ type: CaseDTO })
   async creates(@Body() creates: CaseDTO , @Authen() user: User): Promise<any> {
     return this.commandBus.execute(new CreateCaseCommand(creates , user))
+  }
+
+  @Post('analysis')
+  // @UseGuards(JwtAuthGuard)
+  // @Roles(RoleEnum.CREATE_CASE)
+  @ApiBody({ type: CreateAnalysisFbDto })
+  async createsAnalysis(@Body() creates: CreateAnalysisFbDto , @Authen() user: User): Promise<any> {
+    console.log(`user`,user);
+    
+    return this.commandBus.execute(new CreateAnalysisFbCommand(creates , user))
   }
 
   @Put(':id')
