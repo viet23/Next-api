@@ -154,7 +154,7 @@ export class CaseController {
   }
 
   @Post('analysis')
-  // @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   // @Roles(RoleEnum.CREATE_CASE)
   @ApiBody({ type: CreateAnalysisFbDto })
   async createsAnalysis(@Body() creates: CreateAnalysisFbDto , @Authen() user: User): Promise<any> {

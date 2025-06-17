@@ -14,15 +14,19 @@ export class CreateAnalysisFbCommandHandler implements ICommandHandler<CreateAna
 
   async execute(command: CreateAnalysisFbCommand): Promise<AnalysisFb> {
     const { dto, user } = command
+    console.log(`user`,user);
+    
      const userData = await this.userRepo.findOne({ where: { email: user.email } });
 
-    let analysisFb = await this.analysisFbRepo.findOne({ userId: userData.id.toString() })
+     console.log(`userData`,userData);
+
+    let analysisFb = await this.analysisFbRepo.findOne({ userId: userData?.id.toString() })
     if (!analysisFb) {
       analysisFb = new AnalysisFb()
     }
 
     analysisFb.urlPage = dto.urlPage
-    analysisFb.userId = user.id.toString()
+    analysisFb.userId = userData.id.toString()
     analysisFb.analysis = dto.analysis
     analysisFb.channelPlan = dto.channelPlan
     return await this.analysisFbRepo.save(analysisFb)
