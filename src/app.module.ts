@@ -20,6 +20,7 @@ import { UsersModule } from '@modules/users/users.module'
 import { CaseModule } from '@modules/case/case.module'
 import  session  from 'express-session'
 import { FacebookStrategy } from './modules/auth/facebook.strategy'
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { FacebookStrategy } from './modules/auth/facebook.strategy'
     CustomersModule,
     UsersModule,
     CaseModule,
+    EmailModule,
   ],
   controllers: [AppController],
   providers: [AppService, FacebookStrategy],
