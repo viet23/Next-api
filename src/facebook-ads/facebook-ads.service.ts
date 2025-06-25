@@ -74,7 +74,7 @@ export class FacebookAdsService {
               : dto.goal === 'engagement'
                 ? 'OUTCOME_ENGAGEMENT'
                 : dto.goal === 'leads'
-                  ? 'LEAD_GENERATION'
+                  ? 'OUTCOME_LEADS'
                   : 'OUTCOME_TRAFFIC',
           status: 'PAUSED',
           special_ad_categories: '["NONE"]',
