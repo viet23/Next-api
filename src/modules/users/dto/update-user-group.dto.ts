@@ -18,4 +18,10 @@ export class UpdateUserGroupDto {
 
   @ApiProperty()
   accessToken: string
+
+  @ApiProperty()
+  accessTokenUser: string
+
+  @ApiProperty()
+  accountAdsId: string
 }

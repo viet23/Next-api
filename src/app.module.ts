@@ -21,6 +21,7 @@ import { CaseModule } from '@modules/case/case.module'
 import  session  from 'express-session'
 import { FacebookStrategy } from './modules/auth/facebook.strategy'
 import { EmailModule } from './email/email.module';
+import { FacebookModule } from './facebook-ads/facebook-ads.module'
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { EmailModule } from './email/email.module';
     UsersModule,
     CaseModule,
     EmailModule,
+    FacebookModule,
   ],
   controllers: [AppController],
   providers: [AppService, FacebookStrategy],

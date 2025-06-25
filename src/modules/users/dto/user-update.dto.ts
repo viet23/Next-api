@@ -15,6 +15,12 @@ export class UserUpdateDTO {
   accessToken: string
 
   @ApiProperty()
+  accessTokenUser: string
+
+  @ApiProperty()
+  accountAdsId: string
+
+  @ApiProperty()
   isActive: boolean
 
   @ApiProperty()

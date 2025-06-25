@@ -2,6 +2,7 @@ import { Entity, Column, BeforeInsert, ManyToMany, JoinTable, OneToMany } from '
 import { createHmac } from 'crypto'
 import { BaseEntity } from './base.entity'
 import { Group } from './group.entity'
+import { FacebookAd } from './facebook-ad.entity'
 
 @Entity({ name: 'tbl_users' })
 export class User extends BaseEntity {
@@ -19,6 +20,12 @@ export class User extends BaseEntity {
 
   @Column({ name: 'id_page', nullable: true })
   idPage: string
+
+  @Column({ name: 'access_token_user', nullable: true })
+  accessTokenUser: string
+
+  @Column({ name: 'account_ads_id', nullable: true })
+  accountAdsId: string
 
   @Column({ name: 'full_name', nullable: true })
   fullName: string
@@ -55,6 +62,7 @@ export class User extends BaseEntity {
   @Column({ name: 'is_active', default: false })
   isActive: boolean
 
-
+  @OneToMany(() => FacebookAd, (ad) => ad.createdBy)
+  facebookAds: FacebookAd[];
 
 }
