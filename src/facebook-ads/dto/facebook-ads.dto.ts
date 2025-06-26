@@ -12,10 +12,10 @@ import {
 } from 'class-validator';
 
 export enum AdsGoal {
-  MESSAGE = 'message',
-  ENGAGEMENT = 'engagement',
-  LEADS = 'leads',
-  TRAFFIC = 'traffic',
+    MESSAGE = 'message',
+    ENGAGEMENT = 'engagement',
+    LEADS = 'leads',
+    TRAFFIC = 'traffic',
 }
 
 
@@ -36,6 +36,14 @@ export class CreateFacebookAdDto {
 
     @IsString()
     caption: string;
+
+    @IsOptional()
+    @IsString()
+    urlWebsite: string;
+
+    @IsOptional()
+    @IsString()
+    language: string;
 
     @IsBoolean()
     aiTargeting: boolean;

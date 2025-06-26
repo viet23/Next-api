@@ -24,7 +24,7 @@ export class FacebookAdsService {
         throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`);
       }
 
-      const { accessTokenUser, accountAdsId: adAccountId, idPage: pageId } = userData;
+      const { accessTokenUser, accountAdsId: adAccountId, idPage: pageId, accessToken } = userData;
 
       if (!accessTokenUser) {
         throw new BadRequestException(`Người dùng chưa liên kết Facebook hoặc thiếu accessTokenUser.`);
@@ -40,14 +40,14 @@ export class FacebookAdsService {
 
       const campaignId = await this.createCampaign(dto, accessTokenUser, adAccountId);
       const adSetId = await this.createAdSet(dto, campaignId, accessTokenUser, pageId, adAccountId);
-      const creativeId = await this.createCreative(dto.postId, accessTokenUser, adAccountId);
+      const creativeId = await this.createCreative(dto, accessTokenUser, adAccountId, pageId);
       const ad = await this.createAd(adSetId, creativeId, accessTokenUser, adAccountId);
 
       await this.facebookAdRepo.save({
         adId: ad.id,
         campaignName: dto.campaignName,
         caption: dto.caption,
-        objective: dto.goal,
+        objective: 'awareness',
         startTime: new Date(dto.startTime),
         endTime: new Date(dto.endTime),
         dailyBudget: dto.dailyBudget,
@@ -68,14 +68,7 @@ export class FacebookAdsService {
         `https://graph.facebook.com/v19.0/act_${adAccountId}/campaigns`,
         qs.stringify({
           name: dto.campaignName,
-          objective:
-            dto.goal === 'message'
-              ? 'OUTCOME_LEADS'
-              : dto.goal === 'engagement'
-                ? 'OUTCOME_ENGAGEMENT'
-                : dto.goal === 'leads'
-                  ? 'OUTCOME_LEADS'
-                  : 'OUTCOME_TRAFFIC',
+          objective: 'OUTCOME_AWARENESS',
           status: 'PAUSED',
           special_ad_categories: '["NONE"]',
           access_token: accessTokenUser,
@@ -95,25 +88,6 @@ export class FacebookAdsService {
 
   private async createAdSet(dto: CreateFacebookAdDto, campaignId: string, accessTokenUser: string, pageId: string, adAccountId: string): Promise<string> {
     try {
-      const getInterestId = async (name: string) => {
-        try {
-          const url = `https://graph.facebook.com/v19.0/search?type=adinterest&q=${encodeURIComponent(name)}&access_token=${accessTokenUser}`;
-          const res = await axios.get(url);
-          return res.data?.data?.[0] || null;
-        } catch (e) {
-          console.warn(`⚠️ Không tìm thấy interest: ${name}`);
-          return null;
-        }
-      };
-
-      const interestResults: { id: string; name: string }[] = [];
-      if (dto.detailedTargeting?.length > 0) {
-        for (const keyword of dto.detailedTargeting) {
-          const result = await getInterestId(keyword);
-          if (result) interestResults.push(result);
-        }
-      }
-
       const targetingPayload: any = {
         geo_locations: dto.location && dto.radius
           ? {
@@ -132,34 +106,14 @@ export class FacebookAdsService {
         instagram_positions: ['stream', 'story'],
       };
 
-      if (dto.aiTargeting) {
-        targetingPayload.targeting_automation = { advantage_audience: 1 };
-        if (dto.gender && dto.gender !== 'all') {
-          targetingPayload.genders = dto.gender === 'male' ? [1] : [2];
-        }
-        if (dto.ageRange?.length === 2) {
-          targetingPayload.age_min = dto.ageRange[0];
-          targetingPayload.age_max = dto.ageRange[1];
-        }
-        if (interestResults.length > 0) {
-          targetingPayload.interests = interestResults.map((item) => ({
-            id: item.id,
-            name: item.name,
-          }));;
-        }
-      }
-
-      console.log(`targetingPayload`, targetingPayload);
-
-
       const res = await axios.post(
         `https://graph.facebook.com/v19.0/act_${adAccountId}/adsets`,
         qs.stringify({
           name: dto.campaignName,
           campaign_id: campaignId,
-          daily_budget: dto.dailyBudget * 100,
+          daily_budget: dto.dailyBudget,
           billing_event: 'IMPRESSIONS',
-          optimization_goal: 'LINK_CLICKS',
+          optimization_goal: 'REACH',
           bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
           start_time: dto.startTime,
           end_time: dto.endTime,
@@ -167,7 +121,6 @@ export class FacebookAdsService {
           targeting: JSON.stringify(targetingPayload),
           promoted_object: JSON.stringify({
             page_id: pageId,
-            custom_event_type: 'OTHER',
           }),
           access_token: accessTokenUser,
         }),
@@ -175,7 +128,6 @@ export class FacebookAdsService {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         },
       );
-
       console.log(`✅ AdSet created: ${res.data.id}`);
       return res.data.id;
     } catch (error: any) {
@@ -185,19 +137,24 @@ export class FacebookAdsService {
     }
   }
 
-  private async createCreative(postId: string, accessTokenUser: string, adAccountId: string): Promise<string> {
+  private async createCreative(dto: CreateFacebookAdDto, accessTokenUser: string, adAccountId: string, pageId: string): Promise<string> {
     try {
+      if (!dto.postId) {
+        throw new BadRequestException('Thiếu postId cho bài viết.');
+      }
+
       const res = await axios.post(
         `https://graph.facebook.com/v19.0/act_${adAccountId}/adcreatives`,
         qs.stringify({
           name: 'Creative từ bài viết có sẵn',
-          object_story_id: postId,
+          object_story_id: dto.postId,
           access_token: accessTokenUser,
         }),
         {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         },
       );
+
       console.log(`✅ Creative created: ${res.data.id}`);
       return res.data.id;
     } catch (error: any) {
@@ -214,7 +171,7 @@ export class FacebookAdsService {
         null,
         {
           params: {
-            name: 'Final Ad',
+            name: 'Final Ad - Awareness',
             adset_id: adSetId,
             creative: JSON.stringify({ creative_id: creativeId }),
             status: 'PAUSED',
@@ -227,7 +184,7 @@ export class FacebookAdsService {
       await this.activateAd(adId, accessTokenUser);
       return res.data;
     } catch (error: any) {
-      const message = error?.response?.data?.error?.error_user_msg || error.message;
+      const message = error?.response?.data?.error?.error_user_msg || error?.response?.data?.error?.message;
       console.error('❌ Ad creation error:', error?.response?.data);
       throw new BadRequestException(`Tạo quảng cáo thất bại: ${message}`);
     }

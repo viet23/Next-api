@@ -19,6 +19,8 @@ export class UpdateUserCommandHandler implements ICommandHandler<UpdateUserComma
     user.isActive = dto.isActive
     user.idPage = dto.idPage
     user.accessToken = dto.accessToken
+    user.accessTokenUser = dto.accessTokenUser
+    user.accountAdsId = dto.accountAdsId
     return this.userRepo.save(user)
   }
 }
