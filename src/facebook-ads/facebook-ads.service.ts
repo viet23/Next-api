@@ -42,6 +42,8 @@ export class FacebookAdsService {
       const adSetId = await this.createAdSet(dto, campaignId, accessTokenUser, pageId, adAccountId);
       const creativeId = await this.createCreative(dto, accessTokenUser, adAccountId, pageId);
       const ad = await this.createAd(adSetId, creativeId, accessTokenUser, adAccountId);
+      await this.activateCampaign(campaignId, accessTokenUser);
+      await this.activateAdSet(adSetId, accessTokenUser);
 
       await this.facebookAdRepo.save({
         adId: ad.id,
@@ -105,6 +107,9 @@ export class FacebookAdsService {
         facebook_positions: ['feed'],
         instagram_positions: ['stream', 'story'],
       };
+      if(dto.aiTargeting){
+         targetingPayload.targeting_automation = { advantage_audience: 1 };
+      }
 
       const res = await axios.post(
         `https://graph.facebook.com/v19.0/act_${adAccountId}/adsets`,
@@ -189,6 +194,25 @@ export class FacebookAdsService {
       throw new BadRequestException(`Tạo quảng cáo thất bại: ${message}`);
     }
   }
+
+  private async activateCampaign(campaignId: string, accessTokenUser: string) {
+    await axios.post(
+      `https://graph.facebook.com/v19.0/${campaignId}`,
+      qs.stringify({ status: 'ACTIVE', access_token: accessTokenUser }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+    console.log(`🚀 Campaign ${campaignId} activated successfully.`);
+  }
+
+  private async activateAdSet(adSetId: string, accessTokenUser: string) {
+    await axios.post(
+      `https://graph.facebook.com/v19.0/${adSetId}`,
+      qs.stringify({ status: 'ACTIVE', access_token: accessTokenUser }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+    console.log(`🚀 AdSet ${adSetId} activated successfully.`);
+  }
+
 
   private async activateAd(adId: string, accessTokenUser: string) {
     try {
