@@ -41,7 +41,7 @@ export class FacebookAdsService {
       const campaignId = await this.createCampaign(dto, accessTokenUser, adAccountId);
       const adSetId = await this.createAdSet(dto, campaignId, accessTokenUser, pageId, adAccountId);
       const creativeId = await this.createCreative(dto, accessTokenUser, adAccountId, pageId);
-      const ad = await this.createAd(adSetId, creativeId, accessTokenUser, adAccountId);
+      const ad = await this.createAd(dto,adSetId, creativeId, accessTokenUser, adAccountId);
       await this.activateCampaign(campaignId, accessTokenUser);
       await this.activateAdSet(adSetId, accessTokenUser);
 
@@ -151,7 +151,7 @@ export class FacebookAdsService {
       const res = await axios.post(
         `https://graph.facebook.com/v19.0/act_${adAccountId}/adcreatives`,
         qs.stringify({
-          name: 'Creative từ bài viết có sẵn',
+          name: dto.campaignName,
           object_story_id: dto.postId,
           access_token: accessTokenUser,
         }),
@@ -169,14 +169,14 @@ export class FacebookAdsService {
     }
   }
 
-  private async createAd(adSetId: string, creativeId: string, accessTokenUser: string, adAccountId: string) {
+  private async createAd( dto: CreateFacebookAdDto, adSetId: string, creativeId: string, accessTokenUser: string, adAccountId: string) {
     try {
       const res = await axios.post(
         `https://graph.facebook.com/v19.0/act_${adAccountId}/ads`,
         null,
         {
           params: {
-            name: 'Final Ad - Awareness',
+            name: dto.campaignName,
             adset_id: adSetId,
             creative: JSON.stringify({ creative_id: creativeId }),
             status: 'PAUSED',
