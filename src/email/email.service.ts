@@ -56,6 +56,8 @@ export class EmailService {
     const today = moment().tz('Asia/Ho_Chi_Minh').startOf('day');
     const tomorrow = moment(today).add(1, 'day');
     const yesterday = moment(today).subtract(1, 'day');
+    const since = moment().subtract(1, 'month').format('YYYY-MM-DD');
+    const until = moment().format('YYYY-MM-DD');
 
     this.logger.log(`🔎 Bắt đầu quét dữ liệu quảng cáo lúc ${moment().format('YYYY-MM-DD HH:mm:ss')}`);
 
@@ -70,6 +72,9 @@ export class EmailService {
       ],
       relations: ['createdBy'],
     });
+    // const ads =[{}]
+
+    // 120228662252270337
 
     this.logger.log(`📦 Tìm thấy ${ads.length} quảng cáo cần quét.`);
 
@@ -78,7 +83,8 @@ export class EmailService {
         const response = await axios.get(`https://graph.facebook.com/v19.0/${ad.adId}/insights`, {
           params: {
             fields: 'impressions,clicks,spend,ctr,cpc,cpm',
-            date_preset: 'today',
+            'time_range[since]': since,
+            'time_range[until]': until,
             access_token: ad.createdBy?.accessTokenUser,
           },
         });
@@ -87,6 +93,54 @@ export class EmailService {
 
         if (data) {
           this.logger.log(`📊 [AdID: ${ad.adId}] - Hiển thị: ${data.impressions}, Click: ${data.clicks}, Chi phí: ${data.spend}đ`);
+
+          // 2. Gọi OpenAI để xin khuyến nghị tối ưu quảng cáo
+          let recommendation = "Không có khuyến nghị.";
+
+          try {
+            const openaiRes = await axios.post(
+              "https://api.openai.com/v1/chat/completions",
+              {
+                model: "gpt-4",
+                messages: [
+                  {
+                    role: "system",
+                    content: "Bạn là chuyên gia quảng cáo Facebook. Chỉ đưa ra 2–3 khuyến nghị ngắn gọn và thực tế nhất để tối ưu quảng cáo dựa trên dữ liệu bên dưới. Không cần giải thích dài dòng, không lan man.",
+                  },
+                  {
+                    role: "user",
+                    content: `
+Dưới đây là dữ liệu quảng cáo:
+
+- Ad ID: ${ad.adId}
+- Chiến dịch: ${ad.campaignName}
+- Hiển thị: ${data.impressions}
+- Clicks: ${data.clicks}
+- Chi phí: ${data.spend} VNĐ
+- CTR: ${data.ctr}%
+- CPC: ${data.cpc} VNĐ
+- CPM: ${data.cpm} VNĐ
+
+Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thiện nhất để hiệu quả tốt hơn.
+    `,
+                  }
+                ],
+                temperature: 0.7,
+                max_tokens: 900,
+              },
+              {
+                headers: {
+                  Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                },
+              }
+            );
+
+            recommendation = openaiRes.data?.choices?.[0]?.message?.content || recommendation;
+            this.logger.log(`🤖 Gợi ý từ AI: ${recommendation}`);
+          } catch (aiErr) {
+            this.logger.error("⚠️ Lỗi khi gọi OpenAI:", aiErr?.response?.data || aiErr.message);
+          }
+
 
           // ✅ Gửi mail nếu người tạo có email
           if (ad.createdBy?.email) {
@@ -99,6 +153,9 @@ export class EmailService {
             <p><strong>🖱 Click:</strong> ${data.clicks}</p>
             <p><strong>💸 Chi phí:</strong> ${data.spend} VNĐ</p>
             <p><strong>CTR:</strong> ${data.ctr}% - CPM: ${data.cpm}</p>
+            <hr/>
+          <h4>📈 Gợi ý tối ưu hóa quảng cáo từ AI:</h4>
+          <p>${recommendation.replace(/\n/g, "<br/>")}</p>
           `;
 
             await this.transporter.sendMail({
