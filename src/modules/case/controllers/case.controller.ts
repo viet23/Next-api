@@ -53,22 +53,22 @@ export class CaseController {
   constructor(
     private readonly queryBus: QueryBus,
     private readonly commandBus: CommandBus,
-  ) {}
+  ) { }
 
   @Get()
   @UseGuards(JwtAuthGuard)
   // @Roles(RoleEnum.GET_CASE)
-  async find(@Query() query: CaseManyDto, @Req() req: Request): Promise<any> {
+  async find(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> {
     const { filter } = query
-    return this.queryBus.execute(new GetCaseQuery(filter))
+    return this.queryBus.execute(new GetCaseQuery(filter, user))
   }
 
   @Get('analysis')
   @UseGuards(JwtAuthGuard)
   // @Roles(RoleEnum.GET_CASE)
-  async findAnalysis( @Authen() user: User): Promise<any> {
-    console.log(`user-----------`,user);
-    
+  async findAnalysis(@Authen() user: User): Promise<any> {
+    console.log(`user-----------`, user);
+
     return this.queryBus.execute(new GetAnalysisFbQuery(user))
   }
 
@@ -78,7 +78,7 @@ export class CaseController {
     const { phone, otp } = body
     return this.queryBus.execute(new DetailCaseQuery(phone, otp))
   }
-  
+
   @Get('report')
   @UseGuards(JwtAuthGuard)
   @Roles(RoleEnum.REPORT_CASE)
@@ -146,29 +146,29 @@ export class CaseController {
   }
 
   @Post()
-  // @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   // @Roles(RoleEnum.CREATE_CASE)
   @ApiBody({ type: CaseDTO })
-  async creates(@Body() creates: CaseDTO , @Authen() user: User): Promise<any> {
-    return this.commandBus.execute(new CreateCaseCommand(creates , user))
+  async creates(@Body() creates: CaseDTO, @Authen() user: User): Promise<any> {
+    return this.commandBus.execute(new CreateCaseCommand(creates, user))
   }
 
   @Post('analysis')
   @UseGuards(JwtAuthGuard)
   // @Roles(RoleEnum.CREATE_CASE)
   @ApiBody({ type: CreateAnalysisFbDto })
-  async createsAnalysis(@Body() creates: CreateAnalysisFbDto , @Authen() user: User): Promise<any> {
-    console.log(`user`,user);
-    
-    return this.commandBus.execute(new CreateAnalysisFbCommand(creates , user))
+  async createsAnalysis(@Body() creates: CreateAnalysisFbDto, @Authen() user: User): Promise<any> {
+    console.log(`user`, user);
+
+    return this.commandBus.execute(new CreateAnalysisFbCommand(creates, user))
   }
 
   @Put(':id')
   @UseGuards(JwtAuthGuard)
   @Roles(RoleEnum.UPDATE_CASE)
   @ApiParam({ name: 'id' })
-  async updateflag(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CaseDTO , @Authen() user: User): Promise<Partial<UpdateResult>> {
-    return this.commandBus.execute(new UpdateCaseCommand(id, dto , user))
+  async updateflag(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CaseDTO, @Authen() user: User): Promise<Partial<UpdateResult>> {
+    return this.commandBus.execute(new UpdateCaseCommand(id, dto, user))
   }
 
   @Delete(':id')

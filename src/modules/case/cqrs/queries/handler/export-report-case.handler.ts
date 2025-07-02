@@ -27,7 +27,8 @@ export class ExportReportCasesQueryHandler implements IQueryHandler<ExportReport
   }
 
   private async exportTicket(worksheet, filter) {
-    const data = await this.queryBus.execute(new ReportCaseQuery(filter))
+    // const data = await this.queryBus.execute(new ReportCaseQuery(filter))
+    const data = []
     let rowIndex = 4
     let totalColumns = 12
     // Tổng tất cả

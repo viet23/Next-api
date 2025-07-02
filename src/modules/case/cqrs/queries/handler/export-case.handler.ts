@@ -25,7 +25,8 @@ export class ExportCasesQueryHandler implements IQueryHandler<ExportCasesQuery> 
   private async exportTicket(worksheet, filter) {
     delete filter.page
     delete filter.pageSize
-    const { data } = await this.queryBus.execute(new GetCaseQuery(filter))
+    // const { data } = await this.queryBus.execute(new GetCaseQuery(filter))
+     const data  = []
     data.forEach((row: Case, index: number) => {
       worksheet.getRow(ROW_INDEX + index).values = [
         row.code || '',

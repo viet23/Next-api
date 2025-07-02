@@ -7,6 +7,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { FacebookAd } from '@models/facebook-ad.entity';
 import moment from 'moment-timezone';
 import { Repository, Raw, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+const formatCurrency = v => Number(v).toLocaleString('en-US');   // 1,234,567
+const format2 = v => Number(v).toFixed(2);                       // 2 chữ số thập phân
 
 
 @Injectable()
@@ -50,7 +52,9 @@ export class EmailService {
     }
   }
 
-  @Cron('0 20 * * *') // 🕗 8h tối mỗi ngày
+  @Cron('0 19 * * *', {
+    timeZone: 'Asia/Ho_Chi_Minh', // ⏰ đúng giờ VN
+  })
   // @Cron('*/30 * * * * *')
   async reportAdInsights() {
     const today = moment().tz('Asia/Ho_Chi_Minh').startOf('day');
@@ -72,9 +76,6 @@ export class EmailService {
       ],
       relations: ['createdBy'],
     });
-    // const ads =[{}]
-
-    // 120228662252270337
 
     this.logger.log(`📦 Tìm thấy ${ads.length} quảng cáo cần quét.`);
 
@@ -93,8 +94,9 @@ export class EmailService {
 
         if (data) {
           this.logger.log(`📊 [AdID: ${ad.adId}] - Hiển thị: ${data.impressions}, Click: ${data.clicks}, Chi phí: ${data.spend}đ`);
-
-          // 2. Gọi OpenAI để xin khuyến nghị tối ưu quảng cáo
+          const spend = formatCurrency(data.spend)
+          const ctr = format2(data.ctr)
+          const cpm = formatCurrency(format2(data.cpm))
           let recommendation = "Không có khuyến nghị.";
 
           try {
@@ -116,10 +118,9 @@ Dưới đây là dữ liệu quảng cáo:
 - Chiến dịch: ${ad.campaignName}
 - Hiển thị: ${data.impressions}
 - Clicks: ${data.clicks}
-- Chi phí: ${data.spend} VNĐ
-- CTR: ${data.ctr}%
-- CPC: ${data.cpc} VNĐ
-- CPM: ${data.cpm} VNĐ
+- Chi phí: ${spend} VNĐ
+- CTR: ${ctr}%
+- CPM: ${cpm} VNĐ
 
 Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thiện nhất để hiệu quả tốt hơn.
     `,
@@ -144,6 +145,7 @@ Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thi�
 
           // ✅ Gửi mail nếu người tạo có email
           if (ad.createdBy?.email) {
+
             const htmlReport = `
             <h3>📢 Thống kê quảng cáo</h3>
             <p><strong>Ad ID:</strong> ${ad.adId}</p>
@@ -152,7 +154,7 @@ Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thi�
             <p><strong>👁 Hiển thị:</strong> ${data.impressions}</p>
             <p><strong>🖱 Click:</strong> ${data.clicks}</p>
             <p><strong>💸 Chi phí:</strong> ${data.spend} VNĐ</p>
-            <p><strong>CTR:</strong> ${data.ctr}% - CPM: ${data.cpm}</p>
+            <p><strong>CTR:</strong> ${ctr}% - CPM: ${cpm}</p>
             <hr/>
           <h4>📈 Gợi ý tối ưu hóa quảng cáo từ AI:</h4>
           <p>${recommendation.replace(/\n/g, "<br/>")}</p>
