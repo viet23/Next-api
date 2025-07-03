@@ -153,7 +153,7 @@ Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thi�
             <p><strong>Người tạo:</strong> ${ad.createdBy.email}</p>
             <p><strong>👁 Hiển thị:</strong> ${data.impressions}</p>
             <p><strong>🖱 Click:</strong> ${data.clicks}</p>
-            <p><strong>💸 Chi phí:</strong> ${data.spend} VNĐ</p>
+            <p><strong>💸 Chi phí:</strong> ${spend} VNĐ</p>
             <p><strong>CTR:</strong> ${ctr}% - CPM: ${cpm}</p>
             <hr/>
           <h4>📈 Gợi ý tối ưu hóa quảng cáo từ AI:</h4>
