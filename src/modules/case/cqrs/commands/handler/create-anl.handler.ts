@@ -9,16 +9,16 @@ import { User } from '@models/user.entity'
 export class CreateAnalysisFbCommandHandler implements ICommandHandler<CreateAnalysisFbCommand> {
   constructor(
     @InjectRepository(AnalysisFb) private readonly analysisFbRepo: Repository<AnalysisFb>,
-     @InjectRepository(User) private readonly userRepo: Repository<User>
-  ) { }
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
+  ) {}
 
   async execute(command: CreateAnalysisFbCommand): Promise<AnalysisFb> {
     const { dto, user } = command
-    console.log(`user`,user);
-    
-     const userData = await this.userRepo.findOne({ where: { email: user.email } });
+    console.log(`user`, user)
 
-     console.log(`userData`,userData);
+    const userData = await this.userRepo.findOne({ where: { email: user.email } })
+
+    console.log(`userData`, userData)
 
     let analysisFb = await this.analysisFbRepo.findOne({ userId: userData?.id.toString() })
     if (!analysisFb) {

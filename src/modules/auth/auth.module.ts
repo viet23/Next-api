@@ -37,7 +37,15 @@ const QueriesHandler = [
     }),
     CqrsModule,
   ],
-  providers: [...CommandHandlers, ...QueriesHandler, JwtStrategy, SamlStrategy, SamlGtelpayStrategy, CookieAuthGuard ,GoogleStrategy],
+  providers: [
+    ...CommandHandlers,
+    ...QueriesHandler,
+    JwtStrategy,
+    SamlStrategy,
+    SamlGtelpayStrategy,
+    CookieAuthGuard,
+    GoogleStrategy,
+  ],
   exports: [],
   controllers: [AuthController],
 })

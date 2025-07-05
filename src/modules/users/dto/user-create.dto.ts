@@ -6,4 +6,4 @@ export class UserCreateDTO {
 
   @ApiProperty()
   password: string
-} 
+}

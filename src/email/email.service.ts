@@ -1,23 +1,22 @@
-import { Injectable, Logger } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
-import { CreateEmailDto } from './dto/create-email.dto';
-import { Cron } from '@nestjs/schedule';
-import axios from 'axios';
-import { InjectRepository } from '@nestjs/typeorm';
-import { FacebookAd } from '@models/facebook-ad.entity';
-import moment from 'moment-timezone';
-import { Repository, Raw, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
-const formatCurrency = v => Number(v).toLocaleString('en-US');   // 1,234,567
-const format2 = v => Number(v).toFixed(2);                       // 2 chữ số thập phân
-
+import { Injectable, Logger } from '@nestjs/common'
+import * as nodemailer from 'nodemailer'
+import { CreateEmailDto } from './dto/create-email.dto'
+import { Cron } from '@nestjs/schedule'
+import axios from 'axios'
+import { InjectRepository } from '@nestjs/typeorm'
+import { FacebookAd } from '@models/facebook-ad.entity'
+import moment from 'moment-timezone'
+import { Repository, Raw, LessThanOrEqual, MoreThanOrEqual } from 'typeorm'
+const formatCurrency = (v) => Number(v).toLocaleString('en-US') // 1,234,567
+const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
 
 @Injectable()
 export class EmailService {
-  private readonly logger = new Logger(EmailService.name);
+  private readonly logger = new Logger(EmailService.name)
   constructor(
     @InjectRepository(FacebookAd)
-    private readonly facebookAdRepo: Repository<FacebookAd>
-  ) { }
+    private readonly facebookAdRepo: Repository<FacebookAd>,
+  ) {}
 
   private transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -25,10 +24,10 @@ export class EmailService {
       user: '2203viettt@gmail.com',
       pass: 'tpzhvdoemquprhlo',
     },
-  });
+  })
 
   async sendFormEmail(data: CreateEmailDto) {
-    const { fullName, email, phone, zalo } = data;
+    const { fullName, email, phone, zalo } = data
 
     const mailOptions = {
       from: '2203viettt@gmail.com',
@@ -41,14 +40,14 @@ export class EmailService {
         <p><strong>Phone:</strong> ${phone}</p>
         <p><strong>Zalo:</strong> ${zalo || 'Không cung cấp'}</p>
       `,
-    };
+    }
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
-      return { success: true, messageId: info.messageId };
+      const info = await this.transporter.sendMail(mailOptions)
+      return { success: true, messageId: info.messageId }
     } catch (error) {
-      console.error('Lỗi gửi mail:', error);
-      throw new Error('Không thể gửi email');
+      console.error('Lỗi gửi mail:', error)
+      throw new Error('Không thể gửi email')
     }
   }
 
@@ -57,27 +56,27 @@ export class EmailService {
   })
   // @Cron('*/30 * * * * *')
   async reportAdInsights() {
-    const today = moment().tz('Asia/Ho_Chi_Minh').startOf('day');
-    const tomorrow = moment(today).add(1, 'day');
-    const yesterday = moment(today).subtract(1, 'day');
-    const since = moment().subtract(1, 'month').format('YYYY-MM-DD');
-    const until = moment().format('YYYY-MM-DD');
+    const today = moment().tz('Asia/Ho_Chi_Minh').startOf('day')
+    const tomorrow = moment(today).add(1, 'day')
+    const yesterday = moment(today).subtract(1, 'day')
+    const since = moment().subtract(1, 'month').format('YYYY-MM-DD')
+    const until = moment().format('YYYY-MM-DD')
 
-    this.logger.log(`🔎 Bắt đầu quét dữ liệu quảng cáo lúc ${moment().format('YYYY-MM-DD HH:mm:ss')}`);
+    this.logger.log(`🔎 Bắt đầu quét dữ liệu quảng cáo lúc ${moment().format('YYYY-MM-DD HH:mm:ss')}`)
 
     const ads = await this.facebookAdRepo.find({
       where: [
-        { startTime: Raw(date => `DATE(${date}) = '${today.format('YYYY-MM-DD')}'`) },
+        { startTime: Raw((date) => `DATE(${date}) = '${today.format('YYYY-MM-DD')}'`) },
         {
           startTime: LessThanOrEqual(tomorrow.toDate()),
           endTime: MoreThanOrEqual(today.toDate()),
         },
-        { endTime: Raw(date => `DATE(${date}) = '${yesterday.format('YYYY-MM-DD')}'`) },
+        { endTime: Raw((date) => `DATE(${date}) = '${yesterday.format('YYYY-MM-DD')}'`) },
       ],
       relations: ['createdBy'],
-    });
+    })
 
-    this.logger.log(`📦 Tìm thấy ${ads.length} quảng cáo cần quét.`);
+    this.logger.log(`📦 Tìm thấy ${ads.length} quảng cáo cần quét.`)
 
     for (const ad of ads) {
       try {
@@ -88,29 +87,32 @@ export class EmailService {
             'time_range[until]': until,
             access_token: ad.createdBy?.accessTokenUser,
           },
-        });
+        })
 
-        const data = response.data?.data?.[0];
+        const data = response.data?.data?.[0]
 
         if (data) {
-          this.logger.log(`📊 [AdID: ${ad.adId}] - Hiển thị: ${data.impressions}, Click: ${data.clicks}, Chi phí: ${data.spend}đ`);
+          this.logger.log(
+            `📊 [AdID: ${ad.adId}] - Hiển thị: ${data.impressions}, Click: ${data.clicks}, Chi phí: ${data.spend}đ`,
+          )
           const spend = formatCurrency(data.spend)
           const ctr = format2(data.ctr)
           const cpm = formatCurrency(format2(data.cpm))
-          let recommendation = "Không có khuyến nghị.";
+          let recommendation = 'Không có khuyến nghị.'
 
           try {
             const openaiRes = await axios.post(
-              "https://api.openai.com/v1/chat/completions",
+              'https://api.openai.com/v1/chat/completions',
               {
-                model: "gpt-4",
+                model: 'gpt-4',
                 messages: [
                   {
-                    role: "system",
-                    content: "Bạn là chuyên gia quảng cáo Facebook. Chỉ đưa ra 2–3 khuyến nghị ngắn gọn và thực tế nhất để tối ưu quảng cáo dựa trên dữ liệu bên dưới. Không cần giải thích dài dòng, không lan man.",
+                    role: 'system',
+                    content:
+                      'Bạn là chuyên gia quảng cáo Facebook. Chỉ đưa ra 2–3 khuyến nghị ngắn gọn và thực tế nhất để tối ưu quảng cáo dựa trên dữ liệu bên dưới. Không cần giải thích dài dòng, không lan man.',
                   },
                   {
-                    role: "user",
+                    role: 'user',
                     content: `
 Dưới đây là dữ liệu quảng cáo:
 
@@ -124,7 +126,7 @@ Dưới đây là dữ liệu quảng cáo:
 
 Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thiện nhất để hiệu quả tốt hơn.
     `,
-                  }
+                  },
                 ],
                 temperature: 0.7,
                 max_tokens: 900,
@@ -133,19 +135,17 @@ Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thi�
                 headers: {
                   Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
                 },
-              }
-            );
+              },
+            )
 
-            recommendation = openaiRes.data?.choices?.[0]?.message?.content || recommendation;
-            this.logger.log(`🤖 Gợi ý từ AI: ${recommendation}`);
+            recommendation = openaiRes.data?.choices?.[0]?.message?.content || recommendation
+            this.logger.log(`🤖 Gợi ý từ AI: ${recommendation}`)
           } catch (aiErr) {
-            this.logger.error("⚠️ Lỗi khi gọi OpenAI:", aiErr?.response?.data || aiErr.message);
+            this.logger.error('⚠️ Lỗi khi gọi OpenAI:', aiErr?.response?.data || aiErr.message)
           }
-
 
           // ✅ Gửi mail nếu người tạo có email
           if (ad.createdBy?.email) {
-
             const htmlReport = `
             <h3>📢 Thống kê quảng cáo</h3>
             <p><strong>Ad ID:</strong> ${ad.adId}</p>
@@ -157,31 +157,28 @@ Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thi�
             <p><strong>CTR:</strong> ${ctr}% - CPM: ${cpm}</p>
             <hr/>
           <h4>📈 Gợi ý tối ưu hóa quảng cáo từ AI:</h4>
-          <p>${recommendation.replace(/\n/g, "<br/>")}</p>
-          `;
+          <p>${recommendation.replace(/\n/g, '<br/>')}</p>
+          `
 
             await this.transporter.sendMail({
               from: '2203viettt@gmail.com',
               to: ad.createdBy.email,
               subject: `📊 Báo cáo quảng cáo #${ad.adId} - ${moment().format('YYYY-MM-DD')}`,
               html: htmlReport,
-            });
+            })
 
-            this.logger.log(`📤 Đã gửi báo cáo quảng cáo tới: ${ad.createdBy.email}`);
+            this.logger.log(`📤 Đã gửi báo cáo quảng cáo tới: ${ad.createdBy.email}`)
           } else {
-            this.logger.warn(`⚠️ Không gửi email vì người tạo quảng cáo không có email.`);
+            this.logger.warn(`⚠️ Không gửi email vì người tạo quảng cáo không có email.`)
           }
         } else {
-          this.logger.warn(`⚠️ Không có dữ liệu insights cho quảng cáo ${ad.adId}`);
+          this.logger.warn(`⚠️ Không có dữ liệu insights cho quảng cáo ${ad.adId}`)
         }
       } catch (error: any) {
-        this.logger.error(`❌ Lỗi khi lấy dữ liệu cho ad ${ad.adId}: ${error.message}`);
+        this.logger.error(`❌ Lỗi khi lấy dữ liệu cho ad ${ad.adId}: ${error.message}`)
       }
     }
 
-    this.logger.log(`✅ Đã hoàn tất quét dữ liệu quảng cáo.`);
+    this.logger.log(`✅ Đã hoàn tất quét dữ liệu quảng cáo.`)
   }
-
 }
-
-

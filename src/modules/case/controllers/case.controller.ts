@@ -53,7 +53,7 @@ export class CaseController {
   constructor(
     private readonly queryBus: QueryBus,
     private readonly commandBus: CommandBus,
-  ) { }
+  ) {}
 
   @Get()
   @UseGuards(JwtAuthGuard)
@@ -67,7 +67,7 @@ export class CaseController {
   @UseGuards(JwtAuthGuard)
   // @Roles(RoleEnum.GET_CASE)
   async findAnalysis(@Authen() user: User): Promise<any> {
-    console.log(`user-----------`, user);
+    console.log(`user-----------`, user)
 
     return this.queryBus.execute(new GetAnalysisFbQuery(user))
   }
@@ -108,7 +108,10 @@ export class CaseController {
   @UseGuards(JwtAuthGuard)
   @Roles(RoleEnum.REPORT_EXPORT_CASE)
   @Header('Content-disposition', 'attachment; filename=report-reception-ticket.xlsx')
-  async receptionReportExport(@Query() query: FindManyDto<FilterReportCaseDto>, @Res() response: Response): Promise<any> {
+  async receptionReportExport(
+    @Query() query: FindManyDto<FilterReportCaseDto>,
+    @Res() response: Response,
+  ): Promise<any> {
     const { filter } = query
     return this.queryBus.execute(new ExportReportReceptionCasesQuery(filter, response))
   }
@@ -158,7 +161,7 @@ export class CaseController {
   // @Roles(RoleEnum.CREATE_CASE)
   @ApiBody({ type: CreateAnalysisFbDto })
   async createsAnalysis(@Body() creates: CreateAnalysisFbDto, @Authen() user: User): Promise<any> {
-    console.log(`user`, user);
+    console.log(`user`, user)
 
     return this.commandBus.execute(new CreateAnalysisFbCommand(creates, user))
   }
@@ -167,7 +170,11 @@ export class CaseController {
   @UseGuards(JwtAuthGuard)
   @Roles(RoleEnum.UPDATE_CASE)
   @ApiParam({ name: 'id' })
-  async updateflag(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CaseDTO, @Authen() user: User): Promise<Partial<UpdateResult>> {
+  async updateflag(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CaseDTO,
+    @Authen() user: User,
+  ): Promise<Partial<UpdateResult>> {
     return this.commandBus.execute(new UpdateCaseCommand(id, dto, user))
   }
 

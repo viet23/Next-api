@@ -18,7 +18,20 @@ export const rowBankTotal = 191
 export const columOrderErrorMess = 'C'
 export const rowCumulative = 54
 export const phoneRemove = ['02439361818', '1900558868', '0692326569', '0018006556', '1900555596']
-export const phoneRemoveState = ['02462958884', '02439361818', '1900558868', '19005588686', '0018006556', '0018006556', '0692326569', '1900555596', '2439361818', '2838220960','0993319868' , '0902812078']
+export const phoneRemoveState = [
+  '02462958884',
+  '02439361818',
+  '1900558868',
+  '19005588686',
+  '0018006556',
+  '0018006556',
+  '0692326569',
+  '1900555596',
+  '2439361818',
+  '2838220960',
+  '0993319868',
+  '0902812078',
+]
 export const columnSuccess = ['F', 'H', 'J', 'L', 'N', 'Q']
 export const columnMonth = ['S', 'U', 'W', 'Y', 'AA', 'AD']
 export const cellStartDate = 'AB4'

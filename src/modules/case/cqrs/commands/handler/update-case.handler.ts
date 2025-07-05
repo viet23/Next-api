@@ -13,7 +13,7 @@ export class UpdateCaseCommandHandler implements ICommandHandler<UpdateCaseComma
   constructor(
     @InjectRepository(Case) private readonly caseRepo: Repository<Case>,
     @InjectRepository(GtelpayCustomer) private readonly customerGtelRepo: Repository<GtelpayCustomer>,
-  ) { }
+  ) {}
   async execute(command: UpdateCaseCommand): Promise<Case> {
     const { id, dto, user } = command
     let caseData = await this.caseRepo.findOne(id)

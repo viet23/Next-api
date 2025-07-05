@@ -7,7 +7,7 @@ import { GetRoleUserQuery } from '../impl/get-role-user.query'
 import { User } from '@models/user.entity'
 @QueryHandler(GetRoleUserQuery)
 export class GetRoleUserQueryHandler implements IQueryHandler<GetRoleUserQuery> {
-  constructor(@InjectRepository(User) private readonly userRepo: Repository<User>) { }
+  constructor(@InjectRepository(User) private readonly userRepo: Repository<User>) {}
 
   async execute(query: GetRoleUserQuery): Promise<any> {
     const { user } = query
@@ -27,6 +27,5 @@ export class GetRoleUserQueryHandler implements IQueryHandler<GetRoleUserQuery> 
       .where({ id: user.id })
       .getOne()
     return userRole.groups
-
   }
 }

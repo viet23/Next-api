@@ -18,4 +18,3 @@ export enum CaseHistoryAction {
   UPDATE = 'UPDATE',
   DELETE = 'DELETE',
 }
-

@@ -20,4 +20,4 @@ const QueriesHandler = [GetUsersQueryHandler, FindOneUserQueryHandler]
   exports: [UsersService],
   providers: [...CommandHandlers, ...QueriesHandler, UsersService],
 })
-export class UsersModule { }
+export class UsersModule {}

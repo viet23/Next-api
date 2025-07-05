@@ -11,11 +11,11 @@ export class CreateCaseCommandHandler implements ICommandHandler<CreateCaseComma
   constructor(
     @InjectRepository(Case) private readonly caseRepo: Repository<Case>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
   async execute(command: CreateCaseCommand): Promise<Case> {
     const { dto, user } = command
-  
+
     const userData = await this.userRepo
       .createQueryBuilder('user')
       .where('user.email=:email', { email: user?.email })

@@ -178,9 +178,7 @@ export class ExportReportReceptionCasesQueryHandler implements IQueryHandler<Exp
     return [
       label1,
       label2,
-      ...Array.from({ length: totalColumns + 1 }, (_, i) =>
-        this.formatData(label1 || label2 , values[i] ?? 0),
-      ),
+      ...Array.from({ length: totalColumns + 1 }, (_, i) => this.formatData(label1 || label2, values[i] ?? 0)),
     ]
   }
 

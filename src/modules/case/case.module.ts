@@ -21,7 +21,12 @@ import { ExportReportReceptionCasesQueryHandler } from './cqrs/queries/handler/e
 import { CreateAnalysisFbCommandHandler } from './cqrs/commands/handler/create-anl.handler'
 import { AnalysisFb } from '@models/analysis-fb.entity'
 import { GetAnalysisFbQueryHandler } from './cqrs/queries/handler/get-anl.handler'
-const CommandHandlers = [CreateCaseCommandHandler, UpdateCaseCommandHandler, DeleteCaseCommandHandler, CreateAnalysisFbCommandHandler]
+const CommandHandlers = [
+  CreateCaseCommandHandler,
+  UpdateCaseCommandHandler,
+  DeleteCaseCommandHandler,
+  CreateAnalysisFbCommandHandler,
+]
 
 const QueriesHandler = [
   GetCaseQueryHandler,
@@ -34,8 +39,7 @@ const QueriesHandler = [
   ExportReportCasesQueryHandler,
   ReceptionReportCaseQueryHandler,
   ExportReportReceptionCasesQueryHandler,
-  GetAnalysisFbQueryHandler
-
+  GetAnalysisFbQueryHandler,
 ]
 
 @Module({
@@ -44,4 +48,4 @@ const QueriesHandler = [
   exports: [],
   providers: [...QueriesHandler, ...CommandHandlers],
 })
-export class CaseModule { }
+export class CaseModule {}

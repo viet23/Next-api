@@ -34,17 +34,16 @@ export class User extends BaseEntity {
   password: string
 
   @Column({ name: 'facebook_id', nullable: true, unique: true })
-  facebookId: string;
+  facebookId: string
 
   @Column({ name: 'email', nullable: true, unique: true })
-  email: string;
+  email: string
 
   @Column({ name: 'avatar', nullable: true })
-  avatar: string;
+  avatar: string
 
   @Column({ name: 'provider', nullable: true })
-  provider: string;
-
+  provider: string
 
   @BeforeInsert()
   encryptPassword(): void {
@@ -63,6 +62,5 @@ export class User extends BaseEntity {
   isActive: boolean
 
   @OneToMany(() => FacebookAd, (ad) => ad.createdBy)
-  facebookAds: FacebookAd[];
-
+  facebookAds: FacebookAd[]
 }

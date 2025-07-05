@@ -18,9 +18,9 @@ import { join } from 'path'
 import { ScheduleModule } from '@nestjs/schedule'
 import { UsersModule } from '@modules/users/users.module'
 import { CaseModule } from '@modules/case/case.module'
-import  session  from 'express-session'
+import session from 'express-session'
 import { FacebookStrategy } from './modules/auth/facebook.strategy'
-import { EmailModule } from './email/email.module';
+import { EmailModule } from './email/email.module'
 import { FacebookModule } from './facebook-ads/facebook-ads.module'
 
 @Module({
@@ -72,7 +72,7 @@ export class AppModule implements OnModuleInit {
     private readonly connection: Connection,
     private readonly container: ModulesContainer,
     private readonly reflector: Reflector,
-  ) { }
+  ) {}
 
   onModuleInit() {
     const subscribers = [...this.container.values()]
@@ -102,7 +102,7 @@ export class AppModule implements OnModuleInit {
           secret: 'facebook-secret',
           resave: false,
           saveUninitialized: false,
-        })
+        }),
       )
       .forRoutes('*')
   }

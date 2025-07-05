@@ -1,84 +1,83 @@
-import { Type } from 'class-transformer';
+import { Type } from 'class-transformer'
 import {
-    IsArray,
-    IsBoolean,
-    IsDateString,
-    IsEnum,
-    IsNumber,
-    IsOptional,
-    IsString,
-    Min,
-    ValidateNested,
-} from 'class-validator';
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  ValidateNested,
+} from 'class-validator'
 
 export enum AdsGoal {
-    MESSAGE = 'message',
-    ENGAGEMENT = 'engagement',
-    LEADS = 'leads',
-    TRAFFIC = 'traffic',
+  MESSAGE = 'message',
+  ENGAGEMENT = 'engagement',
+  LEADS = 'leads',
+  TRAFFIC = 'traffic',
 }
 
-
 class LocationDto {
-    @IsNumber()
-    lat: number;
+  @IsNumber()
+  lat: number
 
-    @IsNumber()
-    lng: number;
+  @IsNumber()
+  lng: number
 }
 
 export class CreateFacebookAdDto {
-    @IsEnum(AdsGoal)
-    goal: AdsGoal;
+  @IsEnum(AdsGoal)
+  goal: AdsGoal
 
-    @IsString()
-    campaignName: string;
+  @IsString()
+  campaignName: string
 
-    @IsString()
-    caption: string;
+  @IsString()
+  caption: string
 
-    @IsOptional()
-    @IsString()
-    urlWebsite: string;
+  @IsOptional()
+  @IsString()
+  urlWebsite: string
 
-    @IsOptional()
-    @IsString()
-    language: string;
+  @IsOptional()
+  @IsString()
+  language: string
 
-    @IsBoolean()
-    aiTargeting: boolean;
+  @IsBoolean()
+  aiTargeting: boolean
 
-    @IsOptional()
-    @IsString()
-    gender?: 'all' | 'male' | 'female';
+  @IsOptional()
+  @IsString()
+  gender?: 'all' | 'male' | 'female'
 
-    @IsOptional()
-    @IsArray()
-    ageRange?: [number, number];
+  @IsOptional()
+  @IsArray()
+  ageRange?: [number, number]
 
-    @IsOptional()
-    @ValidateNested()
-    @Type(() => LocationDto)
-    location?: LocationDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LocationDto)
+  location?: LocationDto
 
-    @IsOptional()
-    @IsNumber()
-    radius?: number; // tính theo đơn vị miles
+  @IsOptional()
+  @IsNumber()
+  radius?: number // tính theo đơn vị miles
 
-    @IsOptional()
-    @IsArray()
-    detailedTargeting?: [string, string];
+  @IsOptional()
+  @IsArray()
+  detailedTargeting?: [string, string]
 
-    @IsDateString()
-    startTime: string;
+  @IsDateString()
+  startTime: string
 
-    @IsDateString()
-    endTime: string;
+  @IsDateString()
+  endTime: string
 
-    @IsNumber()
-    @Min(1)
-    dailyBudget: number;
+  @IsNumber()
+  @Min(1)
+  dailyBudget: number
 
-    @IsString()
-    postId: string;
+  @IsString()
+  postId: string
 }

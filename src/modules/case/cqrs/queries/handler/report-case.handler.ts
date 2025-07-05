@@ -87,7 +87,7 @@ export class ReportCaseQueryHandler implements IQueryHandler<ReportCaseQuery> {
         })
         let percentageDetail = featureAll.featureDetails.find((f) => f.featureDetails === '%')
 
-        if (!percentageDetail) {     
+        if (!percentageDetail) {
           percentageDetail = {
             featureDetails: '%',
             totalReports: parseInt(calculatePercentage(featureAll.featureTotal, itemAll.titleTotal)),

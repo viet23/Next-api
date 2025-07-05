@@ -10,8 +10,10 @@ import { formatDateTime } from '@common/constants/customer'
 import { User } from '@models/user.entity'
 @QueryHandler(GetCaseQuery)
 export class GetCaseQueryHandler implements IQueryHandler<GetCaseQuery> {
-  constructor(@InjectRepository(Case) private readonly caseRepo: Repository<Case>,
-    @InjectRepository(User) private readonly userRepo: Repository<User>) { }
+  constructor(
+    @InjectRepository(Case) private readonly caseRepo: Repository<Case>,
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
+  ) {}
   async execute(q: GetCaseQuery): Promise<PaginatedResult<Partial<Case>>> {
     const { filter, user } = q
     const userData = await this.userRepo
@@ -22,7 +24,6 @@ export class GetCaseQueryHandler implements IQueryHandler<GetCaseQuery> {
     const query = await this.caseRepo
       .createQueryBuilder('case')
       .where('case.updatedById=:updatedById', { updatedById: userData?.id })
-
 
     if (filter?.pageSize && filter?.page) {
       const pageSize = filter?.pageSize

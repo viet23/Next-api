@@ -6,17 +6,10 @@ import { FindCaseQuery } from '../impl/find-case.query'
 import { Case } from '@models/case.entity'
 @QueryHandler(FindCaseQuery)
 export class FindCaseQueryHandler implements IQueryHandler<FindCaseQuery> {
-  constructor(
-    @InjectRepository(Case) private readonly caseRepo: Repository<Case>,
-  ) {}
+  constructor(@InjectRepository(Case) private readonly caseRepo: Repository<Case>) {}
   async execute(q: FindCaseQuery): Promise<Case> {
     const { id } = q
-    const caseData = await this.caseRepo
-      .createQueryBuilder('case')
-      .where('case.id=:id', { id: id })
-      .getOne()
+    const caseData = await this.caseRepo.createQueryBuilder('case').where('case.id=:id', { id: id }).getOne()
     return caseData
   }
-
-
 }

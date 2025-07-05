@@ -2,7 +2,6 @@ import { Column, Entity, JoinTable, ManyToMany, OneToMany } from 'typeorm'
 import { BaseEntity } from './base.entity'
 import { IsSusPectEnum } from '@common/enums/suspect.enum'
 
-
 @Entity({ name: 'customers' })
 export class GtelpayCustomer extends BaseEntity {
   @Column({ name: 'customer_id', unique: true, type: 'bigint' })
@@ -58,6 +57,4 @@ export class GtelpayCustomer extends BaseEntity {
 
   @Column({ name: 'scan_date', type: 'timestamp with time zone', nullable: true })
   scanDate: Date
-
 }
-

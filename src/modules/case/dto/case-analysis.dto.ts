@@ -9,7 +9,7 @@ export class CreateAnalysisFbDto {
   analysis?: Record<string, any>
 
   @IsOptional()
-   @IsString()
+  @IsString()
   channelPlan?: string
 
   @IsOptional()

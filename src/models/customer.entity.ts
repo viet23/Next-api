@@ -5,7 +5,6 @@ import { IsSusPectEnum } from '@common/enums/suspect.enum'
 
 @Entity({ name: 'tbl_customers' })
 export class Customers extends BaseEntity {
-
   @Column({ name: 'customer_id', type: 'bigint', unique: true })
   customerId: number
 

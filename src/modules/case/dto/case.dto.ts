@@ -12,5 +12,4 @@ export class CaseDTO {
   @IsOptional()
   @IsString()
   caption: string
-
 }

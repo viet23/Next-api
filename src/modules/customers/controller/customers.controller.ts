@@ -36,7 +36,6 @@ export class CustomersController {
     return this.queryBus.execute(new GetCustomersQuery(filter))
   }
 
-
   @Get('export')
   @Header('Content-disposition', 'attachment; filename=customers.xlsx')
   async export(@Query() query: ExportDto<FilterCustomerDto>, @Res() response: Response) {

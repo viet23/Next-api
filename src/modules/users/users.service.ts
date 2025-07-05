@@ -1,9 +1,9 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { User } from 'src/models/user.entity';
-import { RoleGroupEnum } from '@common/enums/roles.enum';
-import { Group } from '@models/group.entity';
+import { Injectable, UnauthorizedException } from '@nestjs/common'
+import { InjectRepository } from '@nestjs/typeorm'
+import { Repository } from 'typeorm'
+import { User } from 'src/models/user.entity'
+import { RoleGroupEnum } from '@common/enums/roles.enum'
+import { Group } from '@models/group.entity'
 
 @Injectable()
 export class UsersService {
@@ -11,26 +11,26 @@ export class UsersService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     @InjectRepository(Group) private readonly groupRepo: Repository<Group>,
-  ) { }
+  ) {}
 
   /**
    * Đăng nhập bằng Facebook: Tìm hoặc tạo mới user
    */
   async findOrCreateFromFacebook(profile: any): Promise<User> {
-    const facebookId = profile.id;
-    const email = profile.emails?.[0]?.value;
-    const fullName = profile.displayName;
+    const facebookId = profile.id
+    const email = profile.emails?.[0]?.value
+    const fullName = profile.displayName
 
     // 1. Tìm theo facebookId
-    let user = await this.userRepo.findOne({ where: { facebookId } });
-    if (user) return user;
+    let user = await this.userRepo.findOne({ where: { facebookId } })
+    if (user) return user
 
     // 2. Tìm theo username = email (nếu trước đây có tạo bằng email)
     if (email) {
-      user = await this.userRepo.findOne({ where: { username: email } });
+      user = await this.userRepo.findOne({ where: { username: email } })
       if (user) {
         // user.facebookId = facebookId;
-        return this.userRepo.save(user);
+        return this.userRepo.save(user)
       }
     }
 
@@ -41,32 +41,32 @@ export class UsersService {
       fullName: fullName || 'Người dùng Facebook',
       password: facebookId, // không dùng mật khẩu thật (bắt buộc để match schema)
       isActive: true,
-    });
+    })
 
-    return this.userRepo.save(newUser);
+    return this.userRepo.save(newUser)
   }
 
   async findOrCreateFromGoogle(profile: any): Promise<User> {
-    console.log(`profile`, profile);
+    console.log(`profile`, profile)
 
-    let user = await this.userRepo.findOne({ where: { email: profile.email } });
-    console.log(`user`, user);
+    let user = await this.userRepo.findOne({ where: { email: profile.email } })
+    console.log(`user`, user)
 
     if (!user) {
-      user = new User();
-      user.username = profile.email.split('@')[0]; // fallback username
-      user.email = profile.email;
-      user.fullName = profile.name;
-      user.avatar = profile.avatar; // nếu có field avatar trong User entity
-      user.isActive = true;
-      user.password = 'Admin@123';
+      user = new User()
+      user.username = profile.email.split('@')[0] // fallback username
+      user.email = profile.email
+      user.fullName = profile.name
+      user.avatar = profile.avatar // nếu có field avatar trong User entity
+      user.isActive = true
+      user.password = 'Admin@123'
       const checkAdmin = await this.findUserAdmin()
       if (!checkAdmin) user.groups = [await this.findGroupAdmin()]
 
-      await this.userRepo.save(user);
+      await this.userRepo.save(user)
     }
 
-    return user;
+    return user
   }
 
   async findUserAdmin() {
@@ -83,7 +83,4 @@ export class UsersService {
       .where('group.name =:name', { name: RoleGroupEnum.ADMIN })
       .getOne()
   }
-
-
-
 }
