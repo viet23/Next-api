@@ -41,7 +41,7 @@ export class UsersController {
 
   @Post('register')
   async register(@Body() createUserDto: UserCreateDTO) {
-    return this.commandBus.execute(new CreateUserCommand(createUserDto.username, createUserDto.password))
+    return this.commandBus.execute(new CreateUserCommand(createUserDto))
   }
 
   @Put('groups/:id')
