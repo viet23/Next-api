@@ -32,7 +32,7 @@ async function bootstrap() {
   app.use('/public', express.static(join(__dirname, '..', 'uploads')))
   await app.startAllMicroservices()
   app.use(cookieParser())
-  await app.listen(3001)
+  await app.listen(3003)
 }
 bootstrap()
 
