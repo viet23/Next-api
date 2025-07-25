@@ -1,6 +1,6 @@
-import { CaseStatusEnum } from '@common/enums/case.enum'
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsString, IsOptional, IsEnum, IsArray, IsUUID, IsDateString } from 'class-validator'
+
+import { ApiProperty } from '@nestjs/swagger'
+import { IsString, IsOptional } from 'class-validator'
 
 export class CaseDTO {
   @ApiProperty({ description: 'link video' })
@@ -12,4 +12,15 @@ export class CaseDTO {
   @IsOptional()
   @IsString()
   caption: string
+
+  @ApiProperty({ description: 'task video' })
+  @IsOptional()
+  @IsString()
+  taskId: string
+
+  @ApiProperty({ description: 'action video' })
+  @IsOptional()
+  @IsString()
+  action: string
+
 }

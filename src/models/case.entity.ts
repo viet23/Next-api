@@ -13,6 +13,12 @@ export class Case extends BaseEntity {
     this.code = `GTP${createdAtFormatted}`
   }
 
+  @Column({ name: 'task_id', type: 'varchar', nullable: true })
+  taskId: string
+
+   @Column({ name: 'action', type: 'varchar', nullable: true })
+  action: string
+
   private formatDate(date: Date): string {
     return moment(date).format('DDMMYYHHmmssSSS')
   }

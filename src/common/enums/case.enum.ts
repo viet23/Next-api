@@ -18,3 +18,14 @@ export enum CaseHistoryAction {
   UPDATE = 'UPDATE',
   DELETE = 'DELETE',
 }
+
+export enum ActionType {
+  MERGE_MUSIC = 'merge_music',
+  VIDEO_POST_FACEBOOK = 'video_post_facebook',
+  MERGE_VIDEO = 'merge_video',
+  GENERATE_VIDEO = 'generate_video',
+  GENERATE_VIDEO_CAPTION = 'generate_video_caption',
+  GENERATE_IMAGE = 'generate_image',
+  GENERATE_IMAGE_CAPTION = 'generate_image_caption',
+}
+

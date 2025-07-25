@@ -24,6 +24,8 @@ export class CreateCaseCommandHandler implements ICommandHandler<CreateCaseComma
     const caseNew = new Case()
     caseNew.urlVideo = dto.urlVideo
     caseNew.caption = dto.caption
+    caseNew.taskId = dto.taskId
+    caseNew.action = dto.action
     caseNew.updatedById = userData?.id.toString()
     const caseData = await this.caseRepo.save(caseNew)
 
