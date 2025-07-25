@@ -46,6 +46,7 @@ import { ExportReportReceptionCasesQuery } from '../cqrs/queries/impl/export-rec
 import { CreateAnalysisFbCommand } from '../cqrs/commands/impl/create-anl.command'
 import { GetAnalysisFbQuery } from '../cqrs/queries/impl/get-anl.query'
 import { CreateAnalysisFbDto } from '../dto/case-analysis.dto'
+import { CaseStatusEnum } from '@common/enums/case.enum'
 
 @Controller('case')
 @ApiTags('case')
@@ -53,7 +54,7 @@ export class CaseController {
   constructor(
     private readonly queryBus: QueryBus,
     private readonly commandBus: CommandBus,
-  ) {}
+  ) { }
 
   @Get()
   @UseGuards(JwtAuthGuard)
@@ -62,6 +63,17 @@ export class CaseController {
     const { filter } = query
     return this.queryBus.execute(new GetCaseQuery(filter, user))
   }
+
+ @Get('all')
+@UseGuards(JwtAuthGuard)
+async findAlll(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> {
+  query.filter = query.filter || {};
+  query.filter.where = query.filter.where || {};
+  query.filter.where.status = CaseStatusEnum.PENDING;
+
+  return this.queryBus.execute(new GetCaseQuery(query.filter, user));
+}
+
 
   @Get('analysis')
   @UseGuards(JwtAuthGuard)

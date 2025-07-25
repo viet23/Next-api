@@ -6,7 +6,7 @@ import { GetCaseQuery } from '../impl/get-case.query'
 import { PaginatedResult } from '@common/interfaces/paginated-result.interface'
 import { Case } from '@models/case.entity'
 import { User } from '@models/user.entity'
-import { ActionType } from '@common/enums/case.enum'
+import { ActionType, CaseStatusEnum } from '@common/enums/case.enum'
 import axios from 'axios'
 
 // --- Các hàm phụ để gọi lấy url mới ---
@@ -59,7 +59,7 @@ export class GetCaseQueryHandler implements IQueryHandler<GetCaseQuery> {
   constructor(
     @InjectRepository(Case) private readonly caseRepo: Repository<Case>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) {}
+  ) { }
 
   async execute(q: GetCaseQuery): Promise<PaginatedResult<Partial<Case>>> {
     const { filter, user } = q;
@@ -69,10 +69,14 @@ export class GetCaseQueryHandler implements IQueryHandler<GetCaseQuery> {
       .where('user.email = :email', { email: user?.email })
       .getOne();
 
-    const query = this.caseRepo
-      .createQueryBuilder('case')
-      .where('case.updatedById = :updatedById', { updatedById: userData?.id })
-      .orderBy('case.createdAt', 'DESC');
+    const query = this.caseRepo.createQueryBuilder('case');
+
+    // Nếu là PENDING → không lọc theo updatedById
+    if (filter?.where?.status !== CaseStatusEnum.PENDING) {
+      query.where('case.updatedById = :updatedById', { updatedById: userData?.id });
+    }
+
+    query.orderBy('case.createdAt', 'DESC');
 
     if (filter?.pageSize && filter?.page) {
       const skip = (filter.page - 1) * filter.pageSize;
