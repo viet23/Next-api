@@ -26,6 +26,17 @@ export class EmailService {
     },
   })
 
+  async sendMailPassword({ to, subject, html }: { to: string; subject: string; html: string }) {
+    console.log(`Sending email to: ${to}, subject: ${subject}`);
+    
+    return this.transporter.sendMail({
+      from: '2203viettt@gmail.com',
+      to,
+      subject,
+      html,
+    });
+  }
+
   async sendFormEmail(data: CreateEmailDto) {
     const { fullName, email, phone, zalo } = data
 

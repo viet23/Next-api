@@ -1,54 +1,69 @@
-import { Entity, Column, BeforeInsert, ManyToMany, JoinTable, OneToMany } from 'typeorm'
-import { createHmac } from 'crypto'
-import { BaseEntity } from './base.entity'
-import { Group } from './group.entity'
-import { FacebookAd } from './facebook-ad.entity'
+import {
+  Entity,
+  Column,
+  BeforeInsert,
+  BeforeUpdate,
+  ManyToMany,
+  JoinTable,
+  OneToMany,
+} from 'typeorm';
+import { createHmac } from 'crypto';
+import { BaseEntity } from './base.entity';
+import { Group } from './group.entity';
+import { FacebookAd } from './facebook-ad.entity';
 
 @Entity({ name: 'tbl_users' })
 export class User extends BaseEntity {
   @Column({ name: 'username', unique: true })
-  username: string
+  username: string;
 
   @Column({ name: 'phone', unique: true, nullable: true })
-  phone: string
+  phone: string;
+
+  @Column({ name: 'zalo', unique: true, nullable: true })
+  zalo: string;
 
   @Column({ name: 'extension', nullable: true })
-  extension: string
+  extension: string;
 
   @Column({ name: 'access_token', nullable: true })
-  accessToken: string
+  accessToken: string;
 
   @Column({ name: 'id_page', nullable: true })
-  idPage: string
+  idPage: string;
 
   @Column({ name: 'access_token_user', nullable: true })
-  accessTokenUser: string
+  accessTokenUser: string;
 
   @Column({ name: 'account_ads_id', nullable: true })
-  accountAdsId: string
+  accountAdsId: string;
 
   @Column({ name: 'full_name', nullable: true })
-  fullName: string
+  fullName: string;
 
   @Column({ name: 'password' })
-  password: string
+  password: string;
 
   @Column({ name: 'facebook_id', nullable: true, unique: true })
-  facebookId: string
+  facebookId: string;
 
   @Column({ name: 'email', nullable: true, unique: true })
-  email: string
+  email: string;
 
   @Column({ name: 'avatar', nullable: true })
-  avatar: string
+  avatar: string;
 
   @Column({ name: 'provider', nullable: true })
-  provider: string
+  provider: string;
 
-  @BeforeInsert()
-  encryptPassword(): void {
-    this.password = createHmac('sha256', this.password).digest('hex')
-  }
+  @Column({ name: 'reset_token', nullable: true })
+  resetToken: string;
+
+  @Column({ name: 'reset_token_expire', type: 'timestamp', nullable: true })
+  resetTokenExpire: Date;
+
+  @Column({ name: 'is_active', default: false })
+  isActive: boolean;
 
   @ManyToMany(() => Group, (group) => group.users)
   @JoinTable({
@@ -56,11 +71,16 @@ export class User extends BaseEntity {
     joinColumn: { name: 'user_id' },
     inverseJoinColumn: { name: 'group_id' },
   })
-  groups: Group[]
-
-  @Column({ name: 'is_active', default: false })
-  isActive: boolean
+  groups: Group[];
 
   @OneToMany(() => FacebookAd, (ad) => ad.createdBy)
-  facebookAds: FacebookAd[]
+  facebookAds: FacebookAd[];
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  encryptPassword(): void {
+    if (this.password && this.password.length !== 64) {
+      this.password = createHmac('sha256', this.password).digest('hex');
+    }
+  }
 }

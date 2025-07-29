@@ -21,6 +21,8 @@ import { ExportReportReceptionCasesQueryHandler } from './cqrs/queries/handler/e
 import { CreateAnalysisFbCommandHandler } from './cqrs/commands/handler/create-anl.handler'
 import { AnalysisFb } from '@models/analysis-fb.entity'
 import { GetAnalysisFbQueryHandler } from './cqrs/queries/handler/get-anl.handler'
+import { GetFacebookAdsQueryHandler } from './cqrs/queries/handler/get-facebook-ads.handler'
+import { FacebookAd } from '@models/facebook-ad.entity'
 const CommandHandlers = [
   CreateCaseCommandHandler,
   UpdateCaseCommandHandler,
@@ -40,10 +42,11 @@ const QueriesHandler = [
   ReceptionReportCaseQueryHandler,
   ExportReportReceptionCasesQueryHandler,
   GetAnalysisFbQueryHandler,
+  GetFacebookAdsQueryHandler
 ]
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Case, GtelpayCustomer, User, AnalysisFb]), CqrsModule],
+  imports: [TypeOrmModule.forFeature([Case, GtelpayCustomer, User, AnalysisFb,FacebookAd]), CqrsModule],
   controllers: [CaseController],
   exports: [],
   providers: [...QueriesHandler, ...CommandHandlers],

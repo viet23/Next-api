@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { Repository } from 'typeorm'
+import { MoreThan, Repository } from 'typeorm'
 import { User } from 'src/models/user.entity'
 import { RoleGroupEnum } from '@common/enums/roles.enum'
 import { Group } from '@models/group.entity'
@@ -11,7 +11,7 @@ export class UsersService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     @InjectRepository(Group) private readonly groupRepo: Repository<Group>,
-  ) {}
+  ) { }
 
   /**
    * Đăng nhập bằng Facebook: Tìm hoặc tạo mới user
@@ -83,4 +83,44 @@ export class UsersService {
       .where('group.name =:name', { name: RoleGroupEnum.ADMIN })
       .getOne()
   }
+
+  async findByEmail(email: string) {
+    console.log(`findByEmail`, email);
+    
+    return this.userRepo.findOne({ where: { email } });
+  }
+
+  async saveResetToken(userId: string, token: string) {
+    await this.userRepo.update(userId, {
+      resetToken: token,
+      resetTokenExpire: new Date(Date.now() + 1000 * 60 * 60), // 1h
+    });
+  }
+
+  async findByResetToken(token: string) {
+    return this.userRepo.findOne({
+      where: {
+        resetToken: token,
+        resetTokenExpire: MoreThan(new Date()),
+      },
+    });
+  }
+
+  async clearResetToken(userId: string) {
+    await this.userRepo.update(userId, {
+      resetToken: null,
+      resetTokenExpire: null,
+    });
+  }
+
+  async updatePassword(userId: string, hash: string) {
+    let user = await this.userRepo.findOne({ where: { id:userId } })
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+    user.password = hash;
+
+    await this.userRepo.save(user)
+  }
+
 }

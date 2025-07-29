@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query, UseGuards } from '@nestjs/common'
 import { ApiBody, ApiParam, ApiTags } from '@nestjs/swagger'
 import { CommandBus, QueryBus } from '@nestjs/cqrs'
 import { GetUsersQuery } from '../cqrs/queries/impl/get-users.query'
@@ -16,6 +16,13 @@ import { UpdateUserGroupDto } from '../dto/update-user-group.dto'
 import { UpdateUserGroupCommand } from '../cqrs/commands/impl/update-user-group.command'
 import { UserCreateDTO } from '../dto/user-create.dto'
 import { CreateUserCommand } from '../cqrs/commands/impl/create-user.command'
+import { UsersService } from '../users.service'
+import { ForgotPasswordDto } from '../dto/forgot-password.dto'
+import { v4 as uuidv4 } from 'uuid';
+import * as bcrypt from 'bcrypt';
+import { ResetPasswordDto } from '../dto/reset-password.dto'
+import { EmailService } from 'src/email/email.service'
+import { createHmac } from "crypto";
 
 @Controller('users')
 @ApiTags('users')
@@ -24,7 +31,9 @@ export class UsersController {
   constructor(
     private readonly queryBus: QueryBus,
     private readonly commandBus: CommandBus,
-  ) {}
+    private readonly usersService: UsersService,
+    private readonly mailerService: EmailService,
+  ) { }
 
   @Get()
   // @Roles(RoleEnum.GET_USERS)
@@ -57,4 +66,41 @@ export class UsersController {
   async updateflag(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UserUpdateDTO): Promise<Partial<any>> {
     return this.commandBus.execute(new UpdateUserCommand(id, dto))
   }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    const user = await this.usersService.findByEmail(dto.email);
+    if (!user) {
+      return { message: 'Nếu email tồn tại, hệ thống sẽ gửi hướng dẫn' };
+    }
+
+    const token = uuidv4();
+    await this.usersService.saveResetToken(user.id.toString(), token);
+
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+    await this.mailerService.sendMailPassword({
+      to: dto.email,
+      subject: 'Khôi phục mật khẩu',
+      html: `<p>Bạn đã yêu cầu đặt lại mật khẩu.</p>
+             <p>Nhấn vào liên kết dưới đây để tạo mật khẩu mới:</p>
+             <a href="${resetLink}">${resetLink}</a>`,
+    });
+
+    return { message: 'Nếu email tồn tại, hệ thống sẽ gửi hướng dẫn' };
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    const user = await this.usersService.findByResetToken(dto.token);
+    if (!user) throw new BadRequestException('Token không hợp lệ hoặc đã hết hạn');
+    console.log(`user`, user);
+
+    const rawPassword = dto.newPassword;
+// const hashedPassword = createHmac("sha256", rawPassword).digest("hex");
+    await this.usersService.updatePassword(user.id.toString(), rawPassword);
+    await this.usersService.clearResetToken(user.id.toString());
+
+    return { message: 'Mật khẩu đã được cập nhật' };
+  }
+
 }

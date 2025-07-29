@@ -8,5 +8,11 @@ export class UserCreateDTO {
   email: string
 
   @ApiProperty()
+  phone: string
+
+  @ApiProperty()
+  zalo: string
+
+  @ApiProperty()
   password: string
 }

@@ -47,6 +47,7 @@ import { CreateAnalysisFbCommand } from '../cqrs/commands/impl/create-anl.comman
 import { GetAnalysisFbQuery } from '../cqrs/queries/impl/get-anl.query'
 import { CreateAnalysisFbDto } from '../dto/case-analysis.dto'
 import { CaseStatusEnum } from '@common/enums/case.enum'
+import { GetFacebookAdsQuery } from '../cqrs/queries/impl/get-facebook-ads.query'
 
 @Controller('case')
 @ApiTags('case')
@@ -67,7 +68,14 @@ export class CaseController {
  @Get('all')
 @UseGuards(JwtAuthGuard)
 async findAlll(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> {
-  query.filter = query.filter || {};
+  if (!query.filter) {
+    query.filter = {
+      where: {},
+      page: 1,
+      pageSize: 10,
+      filter: {},
+    };
+  }
   query.filter.where = query.filter.where || {};
   query.filter.where.status = CaseStatusEnum.PENDING;
 
@@ -82,6 +90,15 @@ async findAlll(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> 
     console.log(`user-----------`, user)
 
     return this.queryBus.execute(new GetAnalysisFbQuery(user))
+  }
+
+  @Get('facebookads')
+  @UseGuards(JwtAuthGuard)
+  // @Roles(RoleEnum.GET_CASE)
+  async facebookAds(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> {
+    console.log(`user-----------`, user)
+
+    return this.queryBus.execute(new GetFacebookAdsQuery(query.filter,user))
   }
 
   @Post('detail')

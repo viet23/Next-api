@@ -15,9 +15,11 @@ export class SignInQueryHandler implements IQueryHandler<SignInQuery> {
   ) {}
   async execute(query: SignInQuery): Promise<any> {
     const { dto } = query
+    console.log(`dto`, dto);
+    
     const user = await this.userRepo
       .createQueryBuilder()
-      .where('username =:username', { username: dto.username })
+      .where('email =:email', { email: dto.username })
       .andWhere('password =:password', { password: createHmac('sha256', dto.password).digest('hex') })
       .getOne()
     if (!user) {

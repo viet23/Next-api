@@ -9,7 +9,7 @@ import { CreateUserCommand } from '../impl/create-user.command'
 export class CreateUserCommandHandler implements ICommandHandler<CreateUserCommand> {
   constructor(@InjectRepository(User) private readonly userRepo: Repository<User>) { }
   async execute(command: CreateUserCommand): Promise<User> {
-    const { username, password, email } = command?.createUserDto
+    const { username, password, email,phone ,zalo } = command?.createUserDto
     let user = await this.userRepo.findOne({
       where: [
         { email: email }
@@ -25,6 +25,8 @@ export class CreateUserCommandHandler implements ICommandHandler<CreateUserComma
     user.username = email
     user.fullName = username
     user.password = password
+    user.phone = phone
+    user.zalo = zalo
     return this.userRepo.save(user)
   }
 }

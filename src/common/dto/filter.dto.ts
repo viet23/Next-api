@@ -15,6 +15,10 @@ export class FilterDto<T> {
   @IsOptional()
   @IsInt()
   pageSize?: number
+  
+  @ApiPropertyOptional({ type: Object })
+  @IsOptional()
+  filter: any
 }
 
 export class FindManyDto<T> {

@@ -11,11 +11,12 @@ import { FindOneUserQueryHandler } from './cqrs/queries/handler/find-one-user.ha
 import { UpdateUserGroupCommandHandler } from './cqrs/commands/handler/update-user-group.handler'
 import { CreateUserCommandHandler } from './cqrs/commands/handler/create-user.handler'
 import { UsersService } from './users.service'
+import { EmailModule } from 'src/email/email.module'
 const CommandHandlers = [UpdateUserCommandHandler, UpdateUserGroupCommandHandler, CreateUserCommandHandler]
 const QueriesHandler = [GetUsersQueryHandler, FindOneUserQueryHandler]
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Role, Group, User]), CqrsModule],
+  imports: [TypeOrmModule.forFeature([Role, Group, User]), CqrsModule,EmailModule],
   controllers: [UsersController],
   exports: [UsersService],
   providers: [...CommandHandlers, ...QueriesHandler, UsersService],
