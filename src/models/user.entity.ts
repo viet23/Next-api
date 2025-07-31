@@ -56,6 +56,9 @@ export class User extends BaseEntity {
   @Column({ name: 'provider', nullable: true })
   provider: string;
 
+  @Column({ name: 'credits', type: 'int', default: 100 })
+  credits: number;
+
   @Column({ name: 'reset_token', nullable: true })
   resetToken: string;
 
@@ -72,6 +75,7 @@ export class User extends BaseEntity {
     inverseJoinColumn: { name: 'group_id' },
   })
   groups: Group[];
+
 
   @OneToMany(() => FacebookAd, (ad) => ad.createdBy)
   facebookAds: FacebookAd[];
