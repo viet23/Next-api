@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm'
 import { FacebookAd } from '@models/facebook-ad.entity'
 import moment from 'moment-timezone'
 import { Repository, Raw, LessThanOrEqual, MoreThanOrEqual } from 'typeorm'
+import { User } from '@models/user.entity'
 const formatCurrency = (v) => Number(v).toLocaleString('en-US') // 1,234,567
 const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
 
@@ -14,9 +15,10 @@ const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
 export class EmailService {
   private readonly logger = new Logger(EmailService.name)
   constructor(
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(FacebookAd)
     private readonly facebookAdRepo: Repository<FacebookAd>,
-  ) {}
+  ) { }
 
   private transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -28,13 +30,41 @@ export class EmailService {
 
   async sendMailPassword({ to, subject, html }: { to: string; subject: string; html: string }) {
     console.log(`Sending email to: ${to}, subject: ${subject}`);
-    
+
     return this.transporter.sendMail({
       from: '2203viettt@gmail.com',
       to,
       subject,
       html,
     });
+  }
+
+
+
+  async sendCredits(data: any, user: User) {
+    const { fullName, email, phone, zalo } = data
+    const userData = await this.userRepo.findOne({ where: { email: user.email } })
+
+    const mailOptions = {
+      from: '2203viettt@gmail.com',
+      to: 'nextadsai@gmail.com',
+      subject: `Đã yêu cầu thanh toán 179k mua 500 credits`,
+      html: `
+        <h3>Thông tin người liên hệ:</h3>
+        <p><strong>Họ tên:</strong> ${userData.fullName}</p>
+        <p><strong>Email:</strong> ${userData.email}</p>
+        <p><strong>Phone:</strong> ${userData.phone}</p>
+        <p><strong>Zalo:</strong> ${userData.zalo || 'Không cung cấp'}</p>
+      `,
+    }
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions)
+      return { success: true, messageId: info.messageId }
+    } catch (error) {
+      console.error('Lỗi gửi mail:', error)
+      throw new Error('Không thể gửi email')
+    }
   }
 
   async sendFormEmail(data: CreateEmailDto) {

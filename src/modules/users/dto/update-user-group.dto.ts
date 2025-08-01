@@ -17,6 +17,15 @@ export class UpdateUserGroupDto {
   idPage: string
 
   @ApiProperty()
+  credits: number
+
+  @ApiProperty()
+  phone: string
+
+  @ApiProperty()
+  zalo: string
+
+  @ApiProperty()
   accessToken: string
 
   @ApiProperty()

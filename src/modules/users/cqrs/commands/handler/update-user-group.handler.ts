@@ -20,6 +20,9 @@ export class UpdateUserGroupCommandHandler implements ICommandHandler<UpdateUser
     if (dto.fullName) user.fullName = dto.fullName
     if (dto.isActive) user.isActive = dto.isActive
     user.idPage = dto.idPage
+    user.credits = dto.credits
+    user.phone = dto.phone
+    user.zalo = dto.zalo
     user.accessToken = dto.accessToken
     user.accessTokenUser = dto.accessTokenUser
     user.accountAdsId = dto.accountAdsId
