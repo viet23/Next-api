@@ -100,8 +100,8 @@ export class EmailService {
     const today = moment().tz('Asia/Ho_Chi_Minh').startOf('day')
     const tomorrow = moment(today).add(1, 'day')
     const yesterday = moment(today).subtract(1, 'day')
-    const since = moment().subtract(1, 'month').format('YYYY-MM-DD')
-    const until = moment().format('YYYY-MM-DD')
+    // const since = moment().subtract(1, 'month').format('YYYY-MM-DD')
+    // const until = moment().format('YYYY-MM-DD')
 
     this.logger.log(`🔎 Bắt đầu quét dữ liệu quảng cáo lúc ${moment().format('YYYY-MM-DD HH:mm:ss')}`)
 
@@ -123,12 +123,29 @@ export class EmailService {
       try {
         const response = await axios.get(`https://graph.facebook.com/v19.0/${ad.adId}/insights`, {
           params: {
-            fields: 'impressions,clicks,spend,ctr,cpc,cpm',
-            'time_range[since]': since,
-            'time_range[until]': until,
+            fields: [
+              'date_start',
+              'date_stop',
+              'impressions',
+              'reach',
+              'frequency',
+              'spend',
+              'cpm',
+              'cpc',
+              'ctr',
+              'clicks',
+              'inline_link_clicks',
+              'actions',
+              'action_values',
+              'video_avg_time_watched_actions',
+              'purchase_roas'
+            ].join(',')
+            ,
+            date_preset: 'maximum',
             access_token: ad.createdBy?.accessTokenUser,
           },
-        })
+        });
+
 
         const data = response.data?.data?.[0]
 
@@ -187,19 +204,60 @@ Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thi�
 
           // ✅ Gửi mail nếu người tạo có email
           if (ad.createdBy?.email) {
+            const actions = data?.actions || [];
+            const spend = parseFloat(data?.spend || 0).toLocaleString("vi-VN");
+            const ctr = parseFloat(data?.ctr || 0).toFixed(2);
+            const cpm = parseFloat(data?.cpm || 0).toLocaleString("vi-VN");
+            const cpc = parseFloat(data?.cpc || 0).toLocaleString("vi-VN");
+            const frequency = parseFloat(data?.frequency || 0).toFixed(2);
+            const reach = parseInt(data?.reach || 0).toLocaleString("vi-VN");
+
+            // Map tên action_type sang mô tả tiếng Việt
+            const actionTypeMap: Record<string, string> = {
+              post_engagement: "Tương tác với bài viết",
+              page_engagement: "Tương tác với trang",
+              photo_view: "Lượt xem ảnh",
+              like: "Lượt thích",
+              comment: "Bình luận",
+              share: "Chia sẻ",
+              link_click: "Click vào liên kết",
+              offsite_conversion: "Chuyển đổi ngoài nền tảng",
+            };
+
+            // Các loại tương tác cần tính tổng
+            const engagementTypes = Object.keys(actionTypeMap);
+
+            // Tính tổng tương tác và hiển thị chi tiết
+            let totalEngagement = 0;
+            const engagementDetails = actions
+              .filter(a => engagementTypes.includes(a.action_type))
+              .map(a => {
+                const label = actionTypeMap[a.action_type] || a.action_type;
+                const value = parseInt(a.value);
+                totalEngagement += value;
+                return `<li>${label}: ${value}</li>`;
+              }).join("");
+
+            // HTML Report
             const htmlReport = `
-            <h3>📢 Thống kê quảng cáo</h3>
-            <p><strong>Ad ID:</strong> ${ad.adId}</p>
-            <p><strong>Chiến dịch:</strong> ${ad.campaignName}</p>
-            <p><strong>Người tạo:</strong> ${ad.createdBy.email}</p>
-            <p><strong>👁 Hiển thị:</strong> ${data.impressions}</p>
-            <p><strong>🖱 Click:</strong> ${data.clicks}</p>
-            <p><strong>💸 Chi phí:</strong> ${spend} VNĐ</p>
-            <p><strong>CTR:</strong> ${ctr}% - CPM: ${cpm}</p>
-            <hr/>
-          <h4>📈 Gợi ý tối ưu hóa quảng cáo từ AI:</h4>
-          <p>${recommendation.replace(/\n/g, '<br/>')}</p>
-          `
+  <h3>📢 Thống kê quảng cáo</h3>
+  <p><strong>Ad ID:</strong> ${ad.adId}</p>
+  <p><strong>Chiến dịch:</strong> ${ad.campaignName}</p>
+  <p><strong>Người tạo:</strong> ${ad.createdBy.email}</p>
+  <p><strong>👁 Hiển thị:</strong> ${data.impressions}</p>
+  <p><strong>🙋‍♂️ Reach:</strong> ${reach}</p>
+  <p><strong>🔁 Tần suất:</strong> ${frequency}</p>
+  <p><strong>🖱 Click:</strong> ${data.clicks}</p>
+  <p><strong>🔗 Link Click:</strong> ${data.inline_link_clicks || 0}</p>
+  <p><strong>💸 Chi phí:</strong> ${spend} VNĐ</p>
+  <p><strong>📊 CTR:</strong> ${ctr}% - CPM: ${cpm} VNĐ - CPC: ${cpc} VNĐ</p>
+  <p><strong>📌 Tổng tương tác:</strong> ${totalEngagement}</p>
+  <ul>${engagementDetails}</ul>
+  <hr/>
+  <h4>📈 Gợi ý tối ưu hóa quảng cáo từ AI:</h4>
+  <p>${recommendation.replace(/\n/g, '<br/>')}</p>
+`;
+
 
             await this.transporter.sendMail({
               from: '2203viettt@gmail.com',
