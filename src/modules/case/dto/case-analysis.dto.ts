@@ -15,4 +15,11 @@ export class CreateAnalysisFbDto {
   @IsOptional()
   @IsString()
   userId?: string
+
+  @IsOptional()
+  targeting?: Record<string, any>
+
+  @IsOptional()
+  @IsString()
+  styleImage?: string
 }

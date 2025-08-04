@@ -29,6 +29,8 @@ export class CreateAnalysisFbCommandHandler implements ICommandHandler<CreateAna
     analysisFb.userId = userData.id.toString()
     analysisFb.analysis = dto.analysis
     analysisFb.channelPlan = dto.channelPlan
+    analysisFb.targeting = dto.targeting
+    analysisFb.styleImage = dto.styleImage
     return await this.analysisFbRepo.save(analysisFb)
   }
 }

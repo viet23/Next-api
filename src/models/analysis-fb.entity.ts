@@ -14,4 +14,13 @@ export class AnalysisFb extends BaseEntity {
 
   @Column({ name: 'user_id', nullable: true })
   userId: string
+
+  @Column({ name: 'style_image', nullable: true })
+  styleImage: string
+
+  @Column({ name: 'targeting', type: 'jsonb', nullable: true })
+  targeting: any
+
+
+
 }
