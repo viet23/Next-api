@@ -1,6 +1,11 @@
 import { Entity, Column } from 'typeorm'
 import { BaseEntity } from './base.entity'
 
+export enum CreditTransactionStatus {
+  PENDING = 'pending',
+  DONE = 'done',
+}
+
 @Entity({ name: 'tbl_credit_transaction' })
 export class CreditTransaction extends BaseEntity {
   @Column({ name: 'payment_date', type: 'timestamp' })
@@ -17,4 +22,12 @@ export class CreditTransaction extends BaseEntity {
 
   @Column({ name: 'updated_by_id', nullable: true })
   updatedById: string
+
+   @Column({
+    name: 'status',
+    type: 'enum',
+    enum: CreditTransactionStatus,
+    default: CreditTransactionStatus.PENDING,
+  })
+  status: CreditTransactionStatus
 }

@@ -6,9 +6,10 @@ import { TypeOrmModule } from '@nestjs/typeorm'
 import { FacebookAd } from '@models/facebook-ad.entity'
 import { User } from '@models/user.entity'
 import { CqrsModule } from '@nestjs/cqrs'
+import { CreditTransaction } from '@models/credit-ransaction .entity'
 
 @Module({
-  imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd]), CqrsModule],
+  imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd,CreditTransaction]), CqrsModule],
   controllers: [EmailController],
   providers: [EmailService],
   exports: [EmailService],

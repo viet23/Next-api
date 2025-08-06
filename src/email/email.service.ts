@@ -8,6 +8,7 @@ import { FacebookAd } from '@models/facebook-ad.entity'
 import moment from 'moment-timezone'
 import { Repository, Raw, LessThanOrEqual, MoreThanOrEqual } from 'typeorm'
 import { User } from '@models/user.entity'
+import { CreditTransaction } from '@models/credit-ransaction .entity'
 const formatCurrency = (v) => Number(v).toLocaleString('en-US') // 1,234,567
 const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
 
@@ -15,6 +16,8 @@ const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
 export class EmailService {
   private readonly logger = new Logger(EmailService.name)
   constructor(
+
+    @InjectRepository(CreditTransaction) private readonly creditRepo: Repository<CreditTransaction>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(FacebookAd)
     private readonly facebookAdRepo: Repository<FacebookAd>,
@@ -42,7 +45,7 @@ export class EmailService {
 
 
   async sendCredits(data: any, user: User) {
-    const { fullName, email, phone, zalo } = data
+    // const { fullName, email, phone, zalo } = data
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
 
     const mailOptions = {
@@ -60,6 +63,15 @@ export class EmailService {
 
     try {
       const info = await this.transporter.sendMail(mailOptions)
+      const transaction = new CreditTransaction()
+      transaction.paymentDate = new Date()
+      transaction.amountPaidVnd = 179000 // 179k VND
+      transaction.creditsPurchased = 500
+      transaction.code = '179k-500-credits'
+      transaction.updatedById = userData.id.toString() // ID của người yêu cầu thanh toán
+
+      await this.creditRepo.save(transaction)
+
       return { success: true, messageId: info.messageId }
     } catch (error) {
       console.error('Lỗi gửi mail:', error)

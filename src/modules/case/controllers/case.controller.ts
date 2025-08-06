@@ -48,6 +48,8 @@ import { GetAnalysisFbQuery } from '../cqrs/queries/impl/get-anl.query'
 import { CreateAnalysisFbDto } from '../dto/case-analysis.dto'
 import { CaseStatusEnum } from '@common/enums/case.enum'
 import { GetFacebookAdsQuery } from '../cqrs/queries/impl/get-facebook-ads.query'
+import { GetCreditQuery } from '../cqrs/queries/impl/get-credit.query'
+import { CreditDoneQuery } from '../cqrs/queries/impl/credit-done.query'
 
 @Controller('case')
 @ApiTags('case')
@@ -90,6 +92,14 @@ async findAlll(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> 
     console.log(`user-----------`, user)
 
     return this.queryBus.execute(new GetAnalysisFbQuery(user))
+  }
+
+  @Get('credit')
+  @UseGuards(JwtAuthGuard)
+  // @Roles(RoleEnum.GET_CASE)
+  async findCredit(@Authen() user: User): Promise<any> {
+    console.log(`user-----------`, user)
+    return this.queryBus.execute(new GetCreditQuery(user))
   }
 
   @Get('facebookads')
@@ -176,6 +186,14 @@ async findAlll(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> 
   async findById(@Param('id', ParseUUIDPipe) id: string): Promise<Case> {
     return this.queryBus.execute(new FindCaseQuery(id))
   }
+
+   @Get('credit/:id')
+  // @UseGuards(JwtAuthGuard)
+  @ApiParam({ name: 'id' })
+  async creditDone(@Param('id', ParseUUIDPipe) id: string): Promise<Case> {
+    return this.queryBus.execute(new CreditDoneQuery(id))
+  }
+
 
   @Post()
   @UseGuards(JwtAuthGuard)
