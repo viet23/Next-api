@@ -3,7 +3,7 @@ import { BaseEntity } from './base.entity'
 
 @Entity({ name: 'analysis_fb' })
 export class AnalysisFb extends BaseEntity {
-  @Column({ name: 'url_page', type: 'varchar', unique: true })
+  @Column({ name: 'url_page', type: 'varchar' })
   urlPage: string
 
   @Column({ name: 'analysis', type: 'jsonb', nullable: true })
