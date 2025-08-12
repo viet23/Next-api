@@ -50,6 +50,7 @@ import { CaseStatusEnum } from '@common/enums/case.enum'
 import { GetFacebookAdsQuery } from '../cqrs/queries/impl/get-facebook-ads.query'
 import { GetCreditQuery } from '../cqrs/queries/impl/get-credit.query'
 import { CreditDoneQuery } from '../cqrs/queries/impl/credit-done.query'
+import { FindAdsQuery } from '../cqrs/queries/impl/find-ads.query'
 
 @Controller('case')
 @ApiTags('case')
@@ -92,6 +93,13 @@ async findAlll(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> 
     console.log(`user-----------`, user)
 
     return this.queryBus.execute(new GetAnalysisFbQuery(user))
+  }
+
+  @Get('ads/:id')
+  // @UseGuards(JwtAuthGuard)
+  @ApiParam({ name: 'id' })
+  async findByIdanAlysis(@Param('id') id: string): Promise<Case> {
+    return this.queryBus.execute(new FindAdsQuery(id))
   }
 
   @Get('credit')

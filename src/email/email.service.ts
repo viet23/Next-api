@@ -9,6 +9,7 @@ import moment from 'moment-timezone'
 import { Repository, Raw, LessThanOrEqual, MoreThanOrEqual } from 'typeorm'
 import { User } from '@models/user.entity'
 import { CreditTransaction } from '@models/credit-ransaction .entity'
+import { AdInsight } from '@models/ad-insight.entity'
 const formatCurrency = (v) => Number(v).toLocaleString('en-US') // 1,234,567
 const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
 
@@ -16,7 +17,7 @@ const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
 export class EmailService {
   private readonly logger = new Logger(EmailService.name)
   constructor(
-
+    @InjectRepository(AdInsight) private readonly adInsightRepo: Repository<AdInsight>,
     @InjectRepository(CreditTransaction) private readonly creditRepo: Repository<CreditTransaction>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(FacebookAd)
@@ -48,6 +49,9 @@ export class EmailService {
     // const { fullName, email, phone, zalo } = data
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
 
+    console.log(`data`, data);
+
+
     const mailOptions = {
       from: '2203viettt@gmail.com',
       to: 'nextadsai@gmail.com',
@@ -65,9 +69,9 @@ export class EmailService {
       const info = await this.transporter.sendMail(mailOptions)
       const transaction = new CreditTransaction()
       transaction.paymentDate = new Date()
-      transaction.amountPaidVnd = 179000 // 179k VND
-      transaction.creditsPurchased = 500
-      transaction.code = '179k-500-credits'
+      transaction.amountPaidVnd = data.vnd || 179000
+      transaction.creditsPurchased = data.credits || 500
+      transaction.code = `${data.vnd}vnd-${data.credits}-credits`
       transaction.updatedById = userData.id.toString() // ID của người yêu cầu thanh toán
 
       await this.creditRepo.save(transaction)
@@ -250,6 +254,7 @@ Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thi�
                 return `<li>${label}: ${value}</li>`;
               }).join("");
 
+
             // HTML Report
             const htmlReport = `
   <h3>📢 Thống kê quảng cáo</h3>
@@ -271,12 +276,44 @@ Hãy trả lời ngắn gọn , chỉ tập trung vào điều cần cải thi�
 `;
 
 
+
+
+
             await this.transporter.sendMail({
               from: '2203viettt@gmail.com',
               to: ad.createdBy.email,
               subject: `📊 Báo cáo quảng cáo #${ad.adId} - ${moment().format('YYYY-MM-DD')}`,
               html: htmlReport,
             })
+
+            // 🔹 SAVE TO DB — mọi field đều là string
+            try {
+              await this.adInsightRepo.save({
+                adId: String(ad.adId),
+                campaignName: ad.campaignName ? String(ad.campaignName) : null,
+                createdByEmail: ad.createdBy?.email ? String(ad.createdBy.email) : null,
+
+                impressions: String(data.impressions ?? '0'),
+                reach: String(data.reach ?? '0'),
+                frequency: String(data.frequency ?? '0'),
+                clicks: String(data.clicks ?? '0'),
+                inlineLinkClicks: String(data.inline_link_clicks ?? '0'),
+                spendVnd: String(data.spend ?? '0'),
+                ctrPercent: String(data.ctr ?? '0'),
+                cpmVnd: String(data.cpm ?? '0'),
+                cpcVnd: String(data.cpc ?? '0'),
+
+                totalEngagement: String(totalEngagement),
+                engagementDetails: String(engagementDetails || ''), // nếu muốn JSON thì đổi sang JSON.stringify(...)
+                recommendation: recommendation ? String(recommendation) : null,
+                htmlReport: String(htmlReport || ''),
+
+                userId: ad.createdBy?.id ? String(ad.createdBy.id) : null,
+              })
+              this.logger.log(`💾 Đã lưu insight vào DB cho ad ${ad.adId}`)
+            } catch (saveErr: any) {
+              this.logger.error(`❗️ Lỗi lưu DB ad ${ad.adId}: ${saveErr.message}`, saveErr?.stack)
+            }
 
             this.logger.log(`📤 Đã gửi báo cáo quảng cáo tới: ${ad.createdBy.email}`)
           } else {
