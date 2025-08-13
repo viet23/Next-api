@@ -6,13 +6,16 @@ import { User } from '@models/user.entity'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { FacebookAd } from '@models/facebook-ad.entity'
+import { AdInsightUpdateDTO } from './dto/ads-update.dto'
+import { AdInsight } from '@models/ad-insight.entity'
 
 @Injectable()
 export class FacebookAdsService {
   constructor(
+    @InjectRepository(AdInsight) private readonly adInsightRepo: Repository<AdInsight>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(FacebookAd) private readonly facebookAdRepo: Repository<FacebookAd>,
-  ) {}
+  ) { }
 
   async createFacebookAd(dto: CreateFacebookAdDto, user: User) {
     try {
@@ -106,15 +109,15 @@ export class FacebookAdsService {
         geo_locations:
           dto.location && dto.radius
             ? {
-                custom_locations: [
-                  {
-                    latitude: dto.location.lat,
-                    longitude: dto.location.lng,
-                    radius: +(dto.radius / 1609.34).toFixed(2),
-                    distance_unit: 'mile',
-                  },
-                ],
-              }
+              custom_locations: [
+                {
+                  latitude: dto.location.lat,
+                  longitude: dto.location.lng,
+                  radius: +(dto.radius / 1609.34).toFixed(2),
+                  distance_unit: 'mile',
+                },
+              ],
+            }
             : { countries: ['VN'] },
         publisher_platforms: ['facebook', 'instagram'],
         facebook_positions: ['feed'],
@@ -233,6 +236,7 @@ export class FacebookAdsService {
     console.log(`🚀 AdSet ${adSetId} activated successfully.`)
   }
 
+
   private async activateAd(adId: string, accessTokenUser: string) {
     try {
       await axios.post(
@@ -250,6 +254,19 @@ export class FacebookAdsService {
       const message = error?.response?.data?.error?.error_user_msg || error.message
       console.error(`❌ Failed to activate Ad ${adId}:`, error?.response?.data)
       throw new BadRequestException(`Kích hoạt quảng cáo thất bại: ${message}`)
+    }
+  }
+
+  async updateAdInsight(id: string, dto: AdInsightUpdateDTO) {
+    try {
+      const adInsight = await this.adInsightRepo.createQueryBuilder('adInsight').where('adInsight.id=:id', { id: id }).getOne()
+      adInsight.isActive = dto.isActive
+      return  await this.adInsightRepo.save(adInsight)
+
+    } catch (error: any) {
+      const errorMessage = error?.response?.data?.error?.error_user_msg || error.message
+      console.error('❌ updateAdInsight failed:', error?.response?.data)
+      throw new BadRequestException(`Cập nhập quảng cáo thất bại: ${errorMessage}`)
     }
   }
 }

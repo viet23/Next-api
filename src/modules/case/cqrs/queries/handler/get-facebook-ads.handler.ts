@@ -9,102 +9,135 @@ import { FacebookAd } from '@models/facebook-ad.entity'
 import { Logger } from '@nestjs/common'
 import axios from 'axios'
 import moment from 'moment-timezone'
+
 const formatCurrency = (v) => Number(v).toLocaleString('en-US') // 1,234,567
 const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
+
+const INSIGHTS_FIELDS = [
+  'date_start',
+  'date_stop',
+  'impressions',
+  'reach',
+  'frequency',
+  'spend',
+  'cpm',
+  'cpc',
+  'ctr',
+  'clicks',
+  'inline_link_clicks',
+  'actions',
+  'action_values',
+  'video_avg_time_watched_actions',
+  'purchase_roas',
+].join(',')
+
+const toNumber = (v: any) => {
+  if (v === null || v === undefined) return 0
+  if (typeof v === 'number') return v
+  const s = String(v).replace(/,/g, '')
+  const n = Number(s)
+  return Number.isFinite(n) ? n : 0
+}
 
 @QueryHandler(GetFacebookAdsQuery)
 export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQuery> {
   private readonly logger = new Logger(`${GetFacebookAdsQueryHandler.name}`)
+
   constructor(
     @InjectRepository(FacebookAd)
     private readonly facebookAdRepo: Repository<FacebookAd>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
+
   async execute(q: GetFacebookAdsQuery): Promise<any> {
     const { filter, user } = q
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
 
-    const query = this.facebookAdRepo.createQueryBuilder('facebook_ads')
+    const query = this.facebookAdRepo
+      .createQueryBuilder('facebook_ads')
       .leftJoinAndSelect('facebook_ads.createdBy', 'createdBy')
-      .where('facebook_ads.createdBy.id = :updatedById', { updatedById: userData?.id }).orderBy('facebook_ads.createdAt', 'DESC');
+      .where('facebook_ads.createdBy.id = :updatedById', { updatedById: userData?.id })
+      .orderBy('facebook_ads.createdAt', 'DESC')
 
-    if (filter[`filter`]?.pageSize && filter[`filter`]?.page) {
-      const skip = (filter[`filter`]?.page - 1) * filter[`filter`]?.pageSize;
-      query.take(filter[`filter`]?.pageSize).skip(skip);
+    if (filter?.filter?.pageSize && filter?.filter?.page) {
+      const skip = (filter.filter.page - 1) * filter.filter.pageSize
+      query.take(filter.filter.pageSize).skip(skip)
     }
 
+    const [data, total] = await query.getManyAndCount()
 
-    const [data, total] = await query.getManyAndCount();
+    // ---- helpers ----
+    const buildFallbackRow = (ad: any, index: number, status = 'PAUSED') => ({
+      key: ad?.key ?? index + 1,
+      adId: ad?.adId,
+      campaignName: ad?.campaignName,
+      status,
+      data: { impressions: 0, clicks: 0, spend: 0, ctr: 0, cpm: 0 },
+    })
 
-    const dataAds = []
-
-    for (let i = 0; i < data.length; i++) {
-      const ad = data[i];
+    const fetchOne = async (ad: any, index: number) => {
+      const token = ad?.createdBy?.accessTokenUser
+      if (!token || !ad?.adId) {
+        return buildFallbackRow(ad, index, 'PAUSED')
+      }
 
       try {
-        const response = await axios.get(`https://graph.facebook.com/v19.0/${ad.adId}/insights`, {
-          params: {
-            fields: [
-              'date_start',
-              'date_stop',
-              'impressions',
-              'reach',
-              'frequency',
-              'spend',
-              'cpm',
-              'cpc',
-              'ctr',
-              'clicks',
-              'inline_link_clicks',
-              'actions',
-              'action_values',
-              'video_avg_time_watched_actions',
-              'purchase_roas'
-            ].join(',')
-            ,
-            date_preset: 'maximum',
-            access_token: ad.createdBy?.accessTokenUser,
-          },
-        });
+        // gọi song song status + insights cho nhanh
+        const [statusRes, insightsRes] = await Promise.all([
+          axios.get(`https://graph.facebook.com/v19.0/${ad.adId}`, {
+            params: { fields: 'status', access_token: token },
+            timeout: 15000,
+          }),
+          axios.get(`https://graph.facebook.com/v19.0/${ad.adId}/insights`, {
+            params: { fields: INSIGHTS_FIELDS, date_preset: 'maximum', access_token: token },
+            timeout: 20000,
+          }),
+        ])
 
+        const status =
+          typeof statusRes?.data?.status === 'string' ? statusRes.data.status : 'PAUSED'
 
-        console.log(`response.data`, response.data);
-        console.log(`response.data.actions`, response.data?.data?.[0].actions);
+        const fb = insightsRes?.data?.data?.[0] ?? {}
+        const impressions = toNumber(fb.impressions)
+        const clicks = toNumber(fb.clicks)
+        const spend = toNumber(fb.spend)
+        const ctr = toNumber(fb.ctr)
+        const cpm = toNumber(fb.cpm)
 
-
-        const dataFb = response.data?.data?.[0];
-
-        dataAds.push({
-          key: i + 1,
-          adId: ad.adId,
-          campaignName: ad.campaignName,
+        return {
+          key: ad?.key ?? index + 1,
+          adId: ad?.adId,
+          campaignName: ad?.campaignName,
+          status,
           data: {
-            impressions: dataFb?.impressions || 0,
-            clicks: dataFb?.clicks || 0,
-            spend: formatCurrency(dataFb?.spend || 0),
-            ctr: format2(dataFb?.ctr || 0),
-            cpm: formatCurrency(format2(dataFb?.cpm || 0)),
+            impressions,
+            clicks,
+            spend: formatCurrency(spend),
+            ctr: format2(ctr),
+            cpm: formatCurrency(format2(cpm)),
           },
-        });
+        }
       } catch (error: any) {
-        dataAds.push({
-          key: ad.id,
-          adId: ad.adId,
-          campaignName: ad.campaignName,
-          data: {
-            impressions: 0,
-            clicks: 0,
-            spend: 0,
-            ctr: 0,
-            cpm: 0,
-          },
-        });
-
-        console.log("❌ Error response:", error.response?.data || error.message);
-
-        this.logger.error(`❌ Lỗi khi lấy dữ liệu cho ad ${ad.adId}: ${error.message}`);
+        // log chi tiết lỗi từ FB để debug 400/403/… dễ hơn
+        this.logger.error(
+          `❌ Lỗi khi lấy dữ liệu cho ad ${ad?.adId}: ${
+            error?.response?.data?.error?.message || error?.message
+          }`,
+        )
+        // fallback an toàn
+        return buildFallbackRow(ad, index, 'PAUSED')
       }
     }
+
+    const settled = await Promise.allSettled(data.map((ad, i) => fetchOne(ad, i)))
+    const dataAds = settled
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+      .map((r) => r.value)
+
+    // Log những item bị reject (hiếm khi xảy ra vì fetchOne đã catch)
+    settled
+      .filter((r) => r.status === 'rejected')
+      .forEach((r: any) => this.logger.error(`Rejected item: ${r?.reason}`))
 
     return { data: dataAds, total }
   }
