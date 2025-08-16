@@ -7,7 +7,9 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator'
 
@@ -16,6 +18,12 @@ export enum AdsGoal {
   ENGAGEMENT = 'engagement',
   LEADS = 'leads',
   TRAFFIC = 'traffic',
+}
+
+export enum MessageDestination {
+  MESSENGER = 'MESSENGER',
+  WHATSAPP = 'WHATSAPP',
+  INSTAGRAM_DIRECT = 'INSTAGRAM_DIRECT',
 }
 
 class LocationDto {
@@ -38,11 +46,11 @@ export class CreateFacebookAdDto {
 
   @IsOptional()
   @IsString()
-  urlWebsite: string
+  urlWebsite?: string
 
   @IsOptional()
   @IsString()
-  language: string
+  language?: string
 
   @IsBoolean()
   aiTargeting: boolean
@@ -62,7 +70,8 @@ export class CreateFacebookAdDto {
 
   @IsOptional()
   @IsNumber()
-  radius?: number // tính theo đơn vị miles
+  /** miles */
+  radius?: number
 
   @IsOptional()
   @IsArray()
@@ -78,6 +87,43 @@ export class CreateFacebookAdDto {
   @Min(1)
   dailyBudget: number
 
+  /** postId chỉ cần cho campaign KHÔNG phải MESSAGE */
+  @ValidateIf(o => o.goal !== AdsGoal.MESSAGE)
+  @IsOptional()
   @IsString()
-  postId: string
+  postId?: string
+
+  // ====== Thêm để hỗ trợ Click-to-Message (CTM) ======
+
+  /** Mặc định MESSENGER nếu không truyền */
+  @IsOptional()
+  @IsEnum(MessageDestination)
+  messageDestination?: MessageDestination
+
+  /** Bắt buộc nếu messageDestination = WHATSAPP (định dạng 84xxxxxxxxx) */
+  @ValidateIf(o => o.messageDestination === MessageDestination.WHATSAPP)
+  @IsOptional()
+  @IsString()
+  whatsappNumber?: string
+
+  /** 1 trong 2 phải có khi goal = MESSAGE (service sẽ kiểm tra và upload nếu chỉ có imageUrl) */
+  @ValidateIf(o => o.goal === AdsGoal.MESSAGE)
+  @IsOptional()
+  @IsString()
+  imageHash?: string
+
+  @ValidateIf(o => o.goal === AdsGoal.MESSAGE)
+  @IsOptional()
+  @IsUrl()
+  imageUrl?: string
+
+  /** Link hiển thị trong creative CTM (tùy chọn) */
+  @IsOptional()
+  @IsUrl()
+  linkUrl?: string
+
+  // ================================================
+
+  @IsOptional()
+  targetingAI?: any
 }
