@@ -22,6 +22,7 @@ import session from 'express-session'
 import { FacebookStrategy } from './modules/auth/facebook.strategy'
 import { EmailModule } from './email/email.module'
 import { FacebookModule } from './facebook-ads/facebook-ads.module'
+import { OpenaiModule } from './openai/openai.module';
 
 @Module({
   imports: [
@@ -63,6 +64,7 @@ import { FacebookModule } from './facebook-ads/facebook-ads.module'
     CaseModule,
     EmailModule,
     FacebookModule,
+    OpenaiModule,
   ],
   controllers: [AppController],
   providers: [AppService, FacebookStrategy],
