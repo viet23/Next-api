@@ -57,9 +57,9 @@ export class OpenaiService {
                         { role: 'user', content: prompt },
                     ],
                     // Lưu ý: với các model reasoning, dùng `max_completion_tokens` là hợp lệ (alias của max_tokens). :contentReference[oaicite:0]{index=0}
-                    max_completion_tokens: 2000,
+                    max_completion_tokens: 4000,
                     // Có thể bật định dạng chặt chẽ nếu cần:
-                    // response_format: { type: 'json_object' },
+                    response_format: { type: 'json_object' },
                 },
                 {
                     headers: this.buildHeaders(apiKey),
@@ -101,7 +101,7 @@ export class OpenaiService {
                         { role: 'user', content: prompt },
                     ],
                     temperature: 0.4,  // 👈 thêm để output đa dạng hơn 1 chút
-                    max_tokens: 600,   // 👈 GPT-4 dùng max_tokens
+                    max_tokens: 4000,   // 👈 GPT-4 dùng max_tokens
                 },
                 { headers: this.buildHeaders(apiKey) },
             );
@@ -142,7 +142,7 @@ export class OpenaiService {
                         { role: 'user', content: prompt },
                     ],
                     temperature: 0,     // 👈 để output ít "nói lan man"
-                    max_tokens: 1800,   // 👈 GPT-4 dùng max_tokens
+                    max_tokens: 4000,   // 👈 GPT-4 dùng max_tokens
                 },
                 { headers: this.buildHeaders(apiKey) },
             );
@@ -212,7 +212,7 @@ export class OpenaiService {
                     model: 'gpt-4',
                     messages: [{ role: 'user', content: prompt }],
                     temperature: 0.7,
-                    max_tokens: 1000,
+                    max_tokens: 4000,
                 },
                 { headers: this.buildHeaders(apiKey) },
             );
@@ -247,7 +247,7 @@ export class OpenaiService {
                     model: 'gpt-4',
                     messages: [{ role: 'user', content: prompt }],
                     temperature: 0.7,
-                    max_tokens: 1000,
+                    max_tokens: 4000,
                 },
                 { headers: this.buildHeaders(apiKey) },
             );
@@ -281,7 +281,7 @@ export class OpenaiService {
                     model: 'gpt-4',
                     messages: [{ role: 'user', content: prompt }],
                     temperature: 0.9,   // 👈 creative hơn
-                    max_tokens: 1000,
+                    max_tokens: 4000,
                 },
                 { headers: this.buildHeaders(apiKey) },
             );
@@ -321,7 +321,7 @@ export class OpenaiService {
         try {
             const { data, headers, status } = await this.http.post(
                 '/chat/completions',
-                { model, messages, temperature: 0.2, max_tokens: 16 },
+                { model, messages, temperature: 0.2, max_tokens: 4000 },
                 { headers: this.buildHeaders(apiKey) },
             );
 
@@ -365,7 +365,7 @@ export class OpenaiService {
                         },
                     ],
                     temperature: 0.9,
-                    max_tokens: 1000,
+                    max_tokens: 4000,
                 },
                 { headers: this.buildHeaders(apiKey) },
             );
@@ -435,7 +435,7 @@ export class OpenaiService {
                     model: 'gpt-4',
                     messages: [{ role: 'user', content: promptContent }],
                     temperature: 0.8,
-                    max_tokens: 1000,
+                    max_tokens: 4000,
                 },
                 { headers: this.buildHeaders(apiKey) },
             );
