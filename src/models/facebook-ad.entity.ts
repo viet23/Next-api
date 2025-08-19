@@ -18,6 +18,12 @@ export class FacebookAd {
   @Column({ name: 'objective', nullable: true })
   objective?: string
 
+  @Column({ name: 'data_targeting', type: 'jsonb', nullable: true })
+  dataTargeting: any
+
+  @Column({ name: 'url_post', type: 'varchar',nullable: true })
+  urlPost: string
+
   @Column({ name: 'start_time', type: 'timestamptz', nullable: true })
   startTime?: Date
 

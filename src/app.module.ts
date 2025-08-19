@@ -23,6 +23,7 @@ import { FacebookStrategy } from './modules/auth/facebook.strategy'
 import { EmailModule } from './email/email.module'
 import { FacebookModule } from './facebook-ads/facebook-ads.module'
 import { OpenaiModule } from './openai/openai.module';
+import { FacebookPostModule } from './facebook-post/facebook-post.module';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { OpenaiModule } from './openai/openai.module';
     EmailModule,
     FacebookModule,
     OpenaiModule,
+    FacebookPostModule,
   ],
   controllers: [AppController],
   providers: [AppService, FacebookStrategy],
