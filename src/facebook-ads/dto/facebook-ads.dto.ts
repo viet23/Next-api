@@ -93,6 +93,10 @@ export class CreateFacebookAdDto {
   @IsString()
   postId?: string
 
+  @IsOptional()
+  @IsString()
+  urlPost?: string
+
   // ====== Thêm để hỗ trợ Click-to-Message (CTM) ======
 
   /** Mặc định MESSENGER nếu không truyền */

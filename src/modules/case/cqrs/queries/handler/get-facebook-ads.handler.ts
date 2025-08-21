@@ -47,7 +47,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
     @InjectRepository(FacebookAd)
     private readonly facebookAdRepo: Repository<FacebookAd>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) {}
+  ) { }
 
   async execute(q: GetFacebookAdsQuery): Promise<any> {
     const { filter, user } = q
@@ -71,6 +71,8 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
       key: ad?.key ?? index + 1,
       adId: ad?.adId,
       campaignName: ad?.campaignName,
+      targeting: ad?.targeting,
+      urlPost: ad?.urlPost,
       status,
       data: { impressions: 0, clicks: 0, spend: 0, ctr: 0, cpm: 0 },
     })
@@ -108,6 +110,8 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
           key: ad?.key ?? index + 1,
           adId: ad?.adId,
           campaignName: ad?.campaignName,
+          targeting: ad?.targeting,
+          urlPost: ad?.urlPost,
           status,
           data: {
             impressions,
@@ -120,8 +124,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
       } catch (error: any) {
         // log chi tiết lỗi từ FB để debug 400/403/… dễ hơn
         this.logger.error(
-          `❌ Lỗi khi lấy dữ liệu cho ad ${ad?.adId}: ${
-            error?.response?.data?.error?.message || error?.message
+          `❌ Lỗi khi lấy dữ liệu cho ad ${ad?.adId}: ${error?.response?.data?.error?.message || error?.message
           }`,
         )
         // fallback an toàn

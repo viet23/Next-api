@@ -346,6 +346,8 @@ export class FacebookAdsService {
         adId: ad.id,
         campaignName: dto.campaignName,
         caption: dto.caption,
+        dataTargeting: dto,
+        urlPost : dto.urlPost,
         objective: this.mapCampaignObjective(dto.goal),
         startTime: new Date(dto.startTime),
         endTime: new Date(dto.endTime),
