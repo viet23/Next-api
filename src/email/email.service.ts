@@ -108,9 +108,10 @@ export class EmailService {
     }
   }
 
-  @Cron('0 19 * * *', {
+  @Cron('0 9 * * *', {
     timeZone: 'Asia/Ho_Chi_Minh', // ⏰ đúng giờ VN
   })
+
   // @Cron('*/30 * * * * *')
   async reportAdInsights() {
     const today = moment().tz('Asia/Ho_Chi_Minh').startOf('day')
@@ -136,71 +137,71 @@ export class EmailService {
     this.logger.log(`📦 Tìm thấy ${ads.length} quảng cáo cần quét.`)
 
     for (const ad of ads) {
-  try {
-    // 1) Lấy insights từ FB Graph
-    const fbRes = await axios.get(`https://graph.facebook.com/v19.0/${ad.adId}/insights`, {
-      params: {
-        fields: [
-          'date_start',
-          'date_stop',
-          'impressions',
-          'reach',
-          'frequency',
-          'spend',
-          'cpm',
-          'cpc',
-          'ctr',
-          'clicks',
-          'inline_link_clicks',
-          'actions',
-          'action_values',
-          'video_avg_time_watched_actions',
-          'purchase_roas'
-        ].join(','),
-        date_preset: 'maximum',
-        access_token: ad.createdBy?.accessTokenUser,
-      },
-      timeout: 20000,
-    });
+      try {
+        // 1) Lấy insights từ FB Graph
+        const fbRes = await axios.get(`https://graph.facebook.com/v19.0/${ad.adId}/insights`, {
+          params: {
+            fields: [
+              'date_start',
+              'date_stop',
+              'impressions',
+              'reach',
+              'frequency',
+              'spend',
+              'cpm',
+              'cpc',
+              'ctr',
+              'clicks',
+              'inline_link_clicks',
+              'actions',
+              'action_values',
+              'video_avg_time_watched_actions',
+              'purchase_roas'
+            ].join(','),
+            date_preset: 'maximum',
+            access_token: ad.createdBy?.accessTokenUser,
+          },
+          timeout: 20000,
+        });
 
-    const data = fbRes.data?.data?.[0];
-    if (!data) {
-      this.logger.warn(`⚠️ Không có dữ liệu insights cho quảng cáo ${ad.adId}`);
-      continue;
-    }
+        const data = fbRes.data?.data?.[0];
+        if (!data) {
+          this.logger.warn(`⚠️ Không có dữ liệu insights cho quảng cáo ${ad.adId}`);
+          continue;
+        }
 
-    // 2) Helper format
-    const toNum = (v: any, def = 0) => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : def;
-    };
-    const vnd = (v: any) => toNum(v).toLocaleString('vi-VN');
-    const pct = (v: any, digits = 2) => toNum(v).toFixed(digits);
-    const int = (v: any) => Math.round(toNum(v)).toLocaleString('vi-VN');
+        // 2) Helper format
+        const toNum = (v: any, def = 0) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? n : def;
+        };
+        const vnd = (v: any) => toNum(v).toLocaleString('vi-VN');
+        const pct = (v: any, digits = 2) => toNum(v).toFixed(digits);
+        const int = (v: any) => Math.round(toNum(v)).toLocaleString('vi-VN');
 
-    // Chuẩn dữ liệu
-    const impressions = toNum(data.impressions);
-    const reach = toNum(data.reach);
-    const frequency = toNum(data.frequency);
-    const clicks = toNum(data.clicks);
-    const inlineLinkClicks = toNum(data.inline_link_clicks);
-    const spend = toNum(data.spend);
-    const ctr = toNum(data.ctr) * 100; // FB trả CTR theo %, đôi khi đã là %, tùy API. Nếu đã %, bỏ *100.
-    const cpm = toNum(data.cpm);
-    const cpc = toNum(data.cpc);
+        // Chuẩn dữ liệu
+        const impressions = toNum(data.impressions);
+        const reach = toNum(data.reach);
+        const frequency = toNum(data.frequency);
+        const clicks = toNum(data.clicks);
+        const inlineLinkClicks = toNum(data.inline_link_clicks);
+        const spend = toNum(data.spend);
+        const ctr = toNum(data.ctr) * 100; // FB trả CTR theo %, đôi khi đã là %, tùy API. Nếu đã %, bỏ *100.
+        const cpm = toNum(data.cpm);
+        const cpc = toNum(data.cpc);
 
-    this.logger.log(
-      `📊 [AdID: ${ad.adId}] - Hiển thị: ${impressions}, Click: ${clicks}, Chi phí: ${vnd(spend)}đ`
-    );
+        this.logger.log(
+          `📊 [AdID: ${ad.adId}] - Hiển thị: ${impressions}, Click: ${clicks}, Chi phí: ${vnd(spend)}đ`
+        );
 
-    // 3) Gọi OpenAI → yêu cầu JSON structured
-    type AIReturn = {
-      danh_gia: { chi_so: string; muc: 'Tốt'|'Trung bình'|'Kém'; nhan_xet: string }[];
-      tong_quan: string;
-      goi_y: string[];
-    };
+        // 3) Gọi OpenAI → yêu cầu JSON structured
+        type AIReturn = {
+          danh_gia: { chi_so: string; muc: 'Tốt' | 'Trung bình' | 'Kém'; nhan_xet: string }[];
+          tong_quan: string;
+          goi_y: string[];
+        };
 
-    const systemPrompt = `Bạn là chuyên gia quảng cáo Facebook. 
+        const systemPrompt = `Bạn là chuyên gia quảng cáo Facebook. 
 1) ĐÁNH GIÁ TỪNG CHỈ SỐ theo {Tốt|Trung bình|Kém} với lý do ngắn gọn: Hiển thị (Impressions), Clicks, Chi phí, CTR, CPM.
 2) Sau đó, đưa đúng 2–3 khuyến nghị ngắn gọn, thực tế nhất để tối ưu.
 YÊU CẦU: Trả về DUY NHẤT JSON theo schema:
@@ -217,7 +218,7 @@ YÊU CẦU: Trả về DUY NHẤT JSON theo schema:
 }
 KHÔNG thêm chữ thừa, KHÔNG markdown.`;
 
-    const userPrompt = `
+        const userPrompt = `
 Dưới đây là dữ liệu quảng cáo:
 
 - Ad ID: ${ad.adId}
@@ -234,119 +235,119 @@ Lưu ý:
 
 Trả về đúng JSON như schema đã nêu.`;
 
-    // Retry đơn giản cho OpenAI
-    const callOpenAI = async () => {
-      const body: any = {
-        model: 'gpt-4',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.2,
-        max_tokens: 600,
-        // Nếu model hỗ trợ JSON mode: bật để chặn text thừa
-        // @ts-ignore
-        response_format: { type: 'json_object' },
-      };
-      return axios.post('https://api.openai.com/v1/chat/completions', body, {
-        headers: {
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000,
-      });
-    };
-
-    let aiJson: AIReturn | null = null;
-    try {
-      let openaiRes;
-      try {
-        openaiRes = await callOpenAI();
-      } catch (e1: any) {
-        // Fallback nếu response_format bị từ chối bởi model
-        const fallbackBody = {
-          model: 'gpt-4',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          temperature: 0.2,
-          max_tokens: 600,
+        // Retry đơn giản cho OpenAI
+        const callOpenAI = async () => {
+          const body: any = {
+            model: 'gpt-4',
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.2,
+            max_tokens: 600,
+            // Nếu model hỗ trợ JSON mode: bật để chặn text thừa
+            // @ts-ignore
+            response_format: { type: 'json_object' },
+          };
+          return axios.post('https://api.openai.com/v1/chat/completions', body, {
+            headers: {
+              Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 30000,
+          });
         };
-        openaiRes = await axios.post('https://api.openai.com/v1/chat/completions', fallbackBody, {
-          headers: {
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 30000,
-        });
-      }
 
-      const raw = openaiRes.data?.choices?.[0]?.message?.content ?? '{}';
-      // Parse an toàn
-      const safeSlice = (t: string) => {
-        const start = t.indexOf('{');
-        const end = t.lastIndexOf('}');
-        return start >= 0 && end >= 0 ? t.slice(start, end + 1) : '{}';
-      };
-      aiJson = JSON.parse(safeSlice(raw));
+        let aiJson: AIReturn | null = null;
+        try {
+          let openaiRes;
+          try {
+            openaiRes = await callOpenAI();
+          } catch (e1: any) {
+            // Fallback nếu response_format bị từ chối bởi model
+            const fallbackBody = {
+              model: 'gpt-4',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt }
+              ],
+              temperature: 0.2,
+              max_tokens: 600,
+            };
+            openaiRes = await axios.post('https://api.openai.com/v1/chat/completions', fallbackBody, {
+              headers: {
+                Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              timeout: 30000,
+            });
+          }
 
-      // Sắp xếp đánh giá theo ưu tiên: Kém → Trung bình → Tốt
-      const priority = { 'Kém': 0, 'Trung bình': 1, 'Tốt': 2 } as const;
-      if (Array.isArray(aiJson?.danh_gia)) {
-        aiJson!.danh_gia = aiJson!.danh_gia.sort(
-          (a, b) => priority[a.muc as keyof typeof priority] - priority[b.muc as keyof typeof priority]
-        );
-      }
-    } catch (aiErr: any) {
-      this.logger.error('⚠️ Lỗi khi gọi/parse OpenAI:', aiErr?.response?.data || aiErr.message);
-      aiJson = null;
-    }
+          const raw = openaiRes.data?.choices?.[0]?.message?.content ?? '{}';
+          // Parse an toàn
+          const safeSlice = (t: string) => {
+            const start = t.indexOf('{');
+            const end = t.lastIndexOf('}');
+            return start >= 0 && end >= 0 ? t.slice(start, end + 1) : '{}';
+          };
+          aiJson = JSON.parse(safeSlice(raw));
 
-    // 4) Tính tương tác & render
-    const actionTypeMap: Record<string, string> = {
-      post_engagement: 'Tương tác với bài viết',
-      page_engagement: 'Tương tác với trang',
-      photo_view: 'Lượt xem ảnh',
-      like: 'Lượt thích',
-      comment: 'Bình luận',
-      share: 'Chia sẻ',
-      link_click: 'Click vào liên kết',
-      offsite_conversion: 'Chuyển đổi ngoài nền tảng',
-      view_content: 'Xem nội dung',
-      add_to_cart: 'Thêm vào giỏ',
-      purchase: 'Mua hàng',
-    };
-    const engagementTypes = Object.keys(actionTypeMap);
-    const actions = Array.isArray(data?.actions) ? data.actions : [];
-    let totalEngagement = 0;
-    const engagementItems = actions
-      .filter(a => engagementTypes.includes(a.action_type))
-      .map(a => {
-        const label = actionTypeMap[a.action_type] || a.action_type;
-        const value = toNum(a.value);
-        totalEngagement += value;
-        return { label, value };
-      });
-
-    // Render bảng đánh giá & gợi ý (nếu có AI)
-    const renderEvalTable = (r: AIReturn | null) => {
-      if (!r?.danh_gia?.length) return '<p>Không có đánh giá từ AI.</p>';
-      const badge = (muc: string) => {
-        switch (muc) {
-          case 'Kém': return `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:999px;font-weight:600;">Kém</span>`;
-          case 'Trung bình': return `<span style="background:#fef9c3;color:#a16207;padding:2px 8px;border-radius:999px;font-weight:600;">Trung bình</span>`;
-          default: return `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:999px;font-weight:600;">Tốt</span>`;
+          // Sắp xếp đánh giá theo ưu tiên: Kém → Trung bình → Tốt
+          const priority = { 'Kém': 0, 'Trung bình': 1, 'Tốt': 2 } as const;
+          if (Array.isArray(aiJson?.danh_gia)) {
+            aiJson!.danh_gia = aiJson!.danh_gia.sort(
+              (a, b) => priority[a.muc as keyof typeof priority] - priority[b.muc as keyof typeof priority]
+            );
+          }
+        } catch (aiErr: any) {
+          this.logger.error('⚠️ Lỗi khi gọi/parse OpenAI:', aiErr?.response?.data || aiErr.message);
+          aiJson = null;
         }
-      };
-      const rows = r.danh_gia.map(d =>
-        `<tr>
+
+        // 4) Tính tương tác & render
+        const actionTypeMap: Record<string, string> = {
+          post_engagement: 'Tương tác với bài viết',
+          page_engagement: 'Tương tác với trang',
+          photo_view: 'Lượt xem ảnh',
+          like: 'Lượt thích',
+          comment: 'Bình luận',
+          share: 'Chia sẻ',
+          link_click: 'Click vào liên kết',
+          offsite_conversion: 'Chuyển đổi ngoài nền tảng',
+          view_content: 'Xem nội dung',
+          add_to_cart: 'Thêm vào giỏ',
+          purchase: 'Mua hàng',
+        };
+        const engagementTypes = Object.keys(actionTypeMap);
+        const actions = Array.isArray(data?.actions) ? data.actions : [];
+        let totalEngagement = 0;
+        const engagementItems = actions
+          .filter(a => engagementTypes.includes(a.action_type))
+          .map(a => {
+            const label = actionTypeMap[a.action_type] || a.action_type;
+            const value = toNum(a.value);
+            totalEngagement += value;
+            return { label, value };
+          });
+
+        // Render bảng đánh giá & gợi ý (nếu có AI)
+        const renderEvalTable = (r: AIReturn | null) => {
+          if (!r?.danh_gia?.length) return '<p>Không có đánh giá từ AI.</p>';
+          const badge = (muc: string) => {
+            switch (muc) {
+              case 'Kém': return `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:999px;font-weight:600;">Kém</span>`;
+              case 'Trung bình': return `<span style="background:#fef9c3;color:#a16207;padding:2px 8px;border-radius:999px;font-weight:600;">Trung bình</span>`;
+              default: return `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:999px;font-weight:600;">Tốt</span>`;
+            }
+          };
+          const rows = r.danh_gia.map(d =>
+            `<tr>
           <td style="padding:8px;border:1px solid #eee;">${d.chi_so}</td>
           <td style="padding:8px;border:1px solid #eee;">${badge(d.muc)}</td>
           <td style="padding:8px;border:1px solid #eee;">${d.nhan_xet}</td>
         </tr>`
-      ).join('');
-      return `
+          ).join('');
+          return `
       <table style="border-collapse:collapse;width:100%;margin-top:6px;">
         <thead>
           <tr style="background:#f9fafb;">
@@ -357,17 +358,17 @@ Trả về đúng JSON như schema đã nêu.`;
         </thead>
         <tbody>${rows}</tbody>
       </table>`;
-    };
+        };
 
-    const renderTips = (r: AIReturn | null) => {
-      if (!r?.goi_y?.length) return '<p>Không có gợi ý.</p>';
-      const li = r.goi_y.map(g => `<li>${g}</li>`).join('');
-      return `<ul style="padding-left:18px;margin:6px 0 0 0;">${li}</ul>`;
-    };
+        const renderTips = (r: AIReturn | null) => {
+          if (!r?.goi_y?.length) return '<p>Không có gợi ý.</p>';
+          const li = r.goi_y.map(g => `<li>${g}</li>`).join('');
+          return `<ul style="padding-left:18px;margin:6px 0 0 0;">${li}</ul>`;
+        };
 
-    const recommendationStr = aiJson ? JSON.stringify(aiJson) : 'Không có khuyến nghị.';
-    // 5) Email HTML – thay vì JSON thô, dùng bảng & bullet
-    const htmlReport = `
+        const recommendationStr = aiJson ? JSON.stringify(aiJson) : 'Không có khuyến nghị.';
+        // 5) Email HTML – thay vì JSON thô, dùng bảng & bullet
+        const htmlReport = `
   <h3>📢 Thống kê quảng cáo</h3>
   <p><strong>Ad ID:</strong> ${ad.adId}</p>
   <p><strong>Chiến dịch:</strong> ${ad.campaignName || ''}</p>
@@ -390,51 +391,51 @@ Trả về đúng JSON như schema đã nêu.`;
   <div style="margin-top:8px;"><strong>Gợi ý hành động:</strong>${renderTips(aiJson)}</div>
 `;
 
-    // 6) Gửi mail (nếu có email)
-    if (ad.createdBy?.email) {
-      await this.transporter.sendMail({
-        from: '2203viettt@gmail.com',
-        to: ad.createdBy.email,
-        subject: `📊 Báo cáo quảng cáo #${ad.adId} - ${moment().format('YYYY-MM-DD')}`,
-        html: htmlReport,
-      });
-      this.logger.log(`📤 Đã gửi báo cáo quảng cáo tới: ${ad.createdBy.email}`);
-    } else {
-      this.logger.warn(`⚠️ Không gửi email vì người tạo quảng cáo không có email.`);
+        // 6) Gửi mail (nếu có email)
+        if (ad.createdBy?.email) {
+          await this.transporter.sendMail({
+            from: '2203viettt@gmail.com',
+            to: ad.createdBy.email,
+            subject: `📊 Báo cáo quảng cáo #${ad.adId} - ${moment().format('YYYY-MM-DD')}`,
+            html: htmlReport,
+          });
+          this.logger.log(`📤 Đã gửi báo cáo quảng cáo tới: ${ad.createdBy.email}`);
+        } else {
+          this.logger.warn(`⚠️ Không gửi email vì người tạo quảng cáo không có email.`);
+        }
+
+        // 7) Lưu DB
+        try {
+          await this.adInsightRepo.save({
+            adId: String(ad.adId),
+            campaignName: ad.campaignName ? String(ad.campaignName) : null,
+            createdByEmail: ad.createdBy?.email ? String(ad.createdBy.email) : null,
+
+            impressions: String(impressions),
+            reach: String(reach),
+            frequency: String(frequency),
+            clicks: String(clicks),
+            inlineLinkClicks: String(inlineLinkClicks),
+            spendVnd: String(spend),
+            ctrPercent: String(ctr),
+            cpmVnd: String(cpm),
+            cpcVnd: String(cpc),
+
+            totalEngagement: String(totalEngagement),
+            engagementDetails: JSON.stringify(engagementItems), // JSON sạch, dễ dùng lại
+            recommendation: recommendationStr, // JSON AI (nếu có) hoặc chuỗi báo không có
+            htmlReport: String(htmlReport || ''),
+
+            userId: ad.createdBy?.id ? String(ad.createdBy.id) : null,
+          });
+          this.logger.log(`💾 Đã lưu insight vào DB cho ad ${ad.adId}`);
+        } catch (saveErr: any) {
+          this.logger.error(`❗️ Lỗi lưu DB ad ${ad.adId}: ${saveErr.message}`, saveErr?.stack);
+        }
+      } catch (error: any) {
+        this.logger.error(`❌ Lỗi khi lấy dữ liệu cho ad ${ad.adId}: ${error.message}`);
+      }
     }
-
-    // 7) Lưu DB
-    try {
-      await this.adInsightRepo.save({
-        adId: String(ad.adId),
-        campaignName: ad.campaignName ? String(ad.campaignName) : null,
-        createdByEmail: ad.createdBy?.email ? String(ad.createdBy.email) : null,
-
-        impressions: String(impressions),
-        reach: String(reach),
-        frequency: String(frequency),
-        clicks: String(clicks),
-        inlineLinkClicks: String(inlineLinkClicks),
-        spendVnd: String(spend),
-        ctrPercent: String(ctr),
-        cpmVnd: String(cpm),
-        cpcVnd: String(cpc),
-
-        totalEngagement: String(totalEngagement),
-        engagementDetails: JSON.stringify(engagementItems), // JSON sạch, dễ dùng lại
-        recommendation: recommendationStr, // JSON AI (nếu có) hoặc chuỗi báo không có
-        htmlReport: String(htmlReport || ''),
-
-        userId: ad.createdBy?.id ? String(ad.createdBy.id) : null,
-      });
-      this.logger.log(`💾 Đã lưu insight vào DB cho ad ${ad.adId}`);
-    } catch (saveErr: any) {
-      this.logger.error(`❗️ Lỗi lưu DB ad ${ad.adId}: ${saveErr.message}`, saveErr?.stack);
-    }
-  } catch (error: any) {
-    this.logger.error(`❌ Lỗi khi lấy dữ liệu cho ad ${ad.adId}: ${error.message}`);
-  }
-}
 
 
     this.logger.log(`✅ Đã hoàn tất quét dữ liệu quảng cáo.`)
