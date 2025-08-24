@@ -654,7 +654,7 @@ export class FacebookAdsService {
           call_to_action = { type: 'MESSAGE_PAGE', value: { app_destination: 'MESSENGER' } }
         }
 
-        const linkUrl = dto.linkUrl || dto.urlWebsite || 'https://www.facebook.com/'
+        const linkUrl = dto.linkUrl || dto.urlWebsite || 'https://www.alloneads.com/'
 
         const object_story_spec = {
           page_id: pageId,
