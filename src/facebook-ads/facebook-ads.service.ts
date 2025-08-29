@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common'
+import { Injectable, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common'
 import axios from 'axios'
 import { CreateFacebookAdDto, AdsGoal } from './dto/facebook-ads.dto'
 import qs from 'qs'
@@ -19,7 +19,28 @@ type AnyDto = CreateFacebookAdDto & {
   instagramActorId?: string
 }
 
+// type ListOpts = {
+//   fields?: string[];
+//   effective_status?: string[];
+//   limit?: number;
+//   apiVersion?: string;
+// };
+
+type ListOpts = {
+  fields?: string[];
+  effective_status?: string[];
+  limit?: number;
+  apiVersion?: string;
+
+  // NEW: tuỳ chọn xếp hạng & thời gian
+  rankBy?: 'roas' | 'cpl' | 'ctr';
+  datePreset?: string; // vd: 'last_7d', 'last_30d', 'today'
+};
+
+
 type MediaKind = 'video' | 'photo' | 'link' | 'status' | 'unknown'
+
+
 
 @Injectable()
 export class FacebookAdsService {
@@ -27,8 +48,10 @@ export class FacebookAdsService {
     @InjectRepository(AdInsight) private readonly adInsightRepo: Repository<AdInsight>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(FacebookAd) private readonly facebookAdRepo: Repository<FacebookAd>,
-  ) {}
+  ) { }
 
+
+  private readonly logger = new Logger(FacebookAdsService.name);
   // =============== Helpers ===============
   private mapGender(g?: 'all' | 'male' | 'female'): number[] | undefined {
     if (!g || g === 'all') return undefined
@@ -54,11 +77,11 @@ export class FacebookAdsService {
 
   private mapCampaignObjective(goal: AdsGoal): string {
     switch (goal) {
-      case AdsGoal.TRAFFIC:     return 'OUTCOME_TRAFFIC'
-      case AdsGoal.ENGAGEMENT:  return 'OUTCOME_ENGAGEMENT'
-      case AdsGoal.LEADS:       return 'OUTCOME_LEADS'
-      case AdsGoal.MESSAGE:     return 'OUTCOME_SALES' // CTM ổn nhất; fallback đã xử lý riêng
-      default:                  return 'OUTCOME_AWARENESS'
+      case AdsGoal.TRAFFIC: return 'OUTCOME_TRAFFIC'
+      case AdsGoal.ENGAGEMENT: return 'OUTCOME_ENGAGEMENT'
+      case AdsGoal.LEADS: return 'OUTCOME_LEADS'
+      case AdsGoal.MESSAGE: return 'OUTCOME_SALES' // CTM ổn nhất; fallback đã xử lý riêng
+      default: return 'OUTCOME_AWARENESS'
     }
   }
 
@@ -109,12 +132,12 @@ export class FacebookAdsService {
   }
 
   private getPerfGoalSequenceForTraffic(initial: string): string[] {
-    const seq = [ 'LINK_CLICKS', 'LANDING_PAGE_VIEWS', 'AUTOMATIC_OBJECTIVE' ]
+    const seq = ['LINK_CLICKS', 'LANDING_PAGE_VIEWS', 'AUTOMATIC_OBJECTIVE']
     return Array.from(new Set([initial, ...seq]))
   }
 
   private getPerfGoalSequenceForLeads(initial: string): string[] {
-    const seq = [ 'LEAD_GENERATION', 'QUALITY_LEAD', 'SUBSCRIBERS', 'AUTOMATIC_OBJECTIVE' ]
+    const seq = ['LEAD_GENERATION', 'QUALITY_LEAD', 'SUBSCRIBERS', 'AUTOMATIC_OBJECTIVE']
     return Array.from(new Set([initial, ...seq]))
   }
 
@@ -167,7 +190,7 @@ export class FacebookAdsService {
         })
         const top = Array.isArray(data?.data) ? data.data[0] : undefined
         if (top?.id) results.push({ id: top.id, name: top.name })
-      } catch {}
+      } catch { }
     }
     return results
   }
@@ -270,7 +293,7 @@ export class FacebookAdsService {
       )
       const hash = parseHash(res.data)
       if (hash) return hash
-    } catch {}
+    } catch { }
 
     try {
       const imgResp = await axios.get(imageUrl, {
@@ -347,7 +370,7 @@ export class FacebookAdsService {
         campaignName: dto.campaignName,
         caption: dto.caption,
         dataTargeting: dto,
-        urlPost : dto.urlPost,
+        urlPost: dto.urlPost,
         objective: this.mapCampaignObjective(dto.goal),
         startTime: new Date(dto.startTime),
         endTime: new Date(dto.endTime),
@@ -396,10 +419,10 @@ export class FacebookAdsService {
   }
 
   private buildPerfGoalSequence(dto: AnyDto, initial: string, mediaKind: MediaKind): string[] {
-    if (dto.goal === AdsGoal.MESSAGE)    return this.getPerfGoalSequenceForMessage(initial)
+    if (dto.goal === AdsGoal.MESSAGE) return this.getPerfGoalSequenceForMessage(initial)
     if (dto.goal === AdsGoal.ENGAGEMENT) return this.getPerfGoalSequenceForEngagement(initial, mediaKind)
-    if (dto.goal === AdsGoal.TRAFFIC)    return this.getPerfGoalSequenceForTraffic(initial)
-    if (dto.goal === AdsGoal.LEADS)      return this.getPerfGoalSequenceForLeads(initial)
+    if (dto.goal === AdsGoal.TRAFFIC) return this.getPerfGoalSequenceForTraffic(initial)
+    if (dto.goal === AdsGoal.LEADS) return this.getPerfGoalSequenceForLeads(initial)
     return [initial]
   }
 
@@ -615,7 +638,7 @@ export class FacebookAdsService {
         let image_hash: string | undefined
         if (dto.imageHash) image_hash = dto.imageHash
         else if (dto.imageUrl) {
-          try { image_hash = await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, accessTokenUser) } catch {}
+          try { image_hash = await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, accessTokenUser) } catch { }
         }
 
         const link_data: any = {
@@ -838,4 +861,382 @@ export class FacebookAdsService {
       throw new BadRequestException(`Cập nhập quảng cáo thất bại: ${errorMessage}`)
     }
   }
+
+
+  // async listAds(opts: ListOpts = {}) {
+  //   const { apiVersion: vEnv, adAccountId, accessTokenUser } = this.getEnv();
+  //   const apiVersion = opts.apiVersion || vEnv;
+
+  //   const fields = (opts.fields && opts.fields.length
+  //     ? opts.fields
+  //     : [
+  //         'id',
+  //         'name',
+  //         'adset_id',
+  //         'campaign_id',
+  //         'status',
+  //         'effective_status',
+  //         'created_time',
+  //         'updated_time',
+  //       ]).join(',');
+
+  //   const effective_status = JSON.stringify(
+  //     (opts.effective_status && opts.effective_status.length
+  //       ? opts.effective_status
+  //       : ['ACTIVE', 'PAUSED', 'ARCHIVED'])
+  //   );
+
+  //   const limit = Math.max(1, opts.limit ?? 200);
+
+  //   const baseUrl = `https://graph.facebook.com/${apiVersion}/act_${adAccountId}/ads`;
+  //   const baseParams = {
+  //     access_token: accessTokenUser,
+  //     fields,
+  //     limit,
+  //     effective_status,
+  //   };
+
+  //   const all: any[] = [];
+  //   let nextUrl: string | null = baseUrl;
+  //   let nextParams: Record<string, any> = { ...baseParams };
+
+  //   try {
+  //     while (nextUrl) {
+  //       const { data } = await axios.get(nextUrl, {
+  //         params: nextParams,
+  //         timeout: 30_000,
+  //         // headers: { 'User-Agent': 'AllOneAds/1.0' }, // tuỳ chọn
+  //       });
+
+  //       if (Array.isArray(data?.data)) {
+  //         all.push(...data.data);
+  //       }
+
+  //       const nxt = data?.paging?.next;
+  //       if (nxt) {
+  //         nextUrl = nxt;       // đã chứa full query
+  //         nextParams = {};     // tránh đè
+  //       } else {
+  //         nextUrl = null;
+  //       }
+  //     }
+
+  //     return { count: all.length, items: all };
+  //   } catch (err: any) {
+  //     const apiErr = err?.response?.data || err;
+  //     this.logger.error(`listAds error: ${JSON.stringify(apiErr)}`);
+  //     throw new InternalServerErrorException(apiErr);
+  //   }
+  // }
+
+  // NEW: tiện ích nhỏ
+  private uniq<T>(arr: T[]): T[] {
+    return Array.from(new Set(arr));
+  }
+  private sleep(ms: number) {
+    return new Promise(r => setTimeout(r, ms));
+  }
+
+  // NEW: Lấy insights level=campaign cho account (phân trang)
+  private async fetchCampaignInsights(args: {
+    apiVersion: string;
+    adAccountId: string;
+    accessTokenUser: string;
+    datePreset: string;
+  }) {
+    const { apiVersion, adAccountId, accessTokenUser, datePreset } = args;
+    const base = `https://graph.facebook.com/${apiVersion}/act_${adAccountId}/insights`;
+    const params = new URLSearchParams({
+      access_token: accessTokenUser,
+      level: 'campaign',
+      fields: [
+        'campaign_id',
+        'campaign_name',
+        'date_start',
+        'date_stop',
+        'spend',
+        'impressions',
+        'clicks',
+        'ctr',
+        'actions',
+        'action_values',
+        'purchase_roas',
+      ].join(','),
+      date_preset: datePreset,
+      time_increment: '1',
+      limit: '500',
+    });
+
+    let url: string | null = `${base}?${params.toString()}`;
+    const rows: any[] = [];
+    while (url) {
+      const { data } = await axios.get(url, { timeout: 30_000 });
+      rows.push(...(data?.data ?? []));
+      url = data?.paging?.next ?? null;
+      if (url) await this.sleep(150);
+    }
+    return rows;
+  }
+
+  // NEW: Lấy targeting cho nhiều adset_id
+  private async fetchAdsetTargetingBatch(args: {
+    apiVersion: string;
+    accessTokenUser: string;
+    adsetIds: string[];
+  }) {
+    const { apiVersion, accessTokenUser, adsetIds } = args;
+    const out: Record<string, any> = {};
+    const ids = [...adsetIds];
+    const CONCURRENCY = 4;
+
+    const worker = async () => {
+      while (ids.length) {
+        const id = ids.shift()!;
+        try {
+          const { data } = await axios.get(
+            `https://graph.facebook.com/${apiVersion}/${id}`,
+            { params: { access_token: accessTokenUser, fields: 'id,name,targeting' }, timeout: 30_000 }
+          );
+          out[id] = data?.targeting ?? null;
+        } catch (e: any) {
+          this.logger.error(`fetchAdsetTargetingBatch error ${id}: ${JSON.stringify(e?.response?.data || e)}`);
+          out[id] = null;
+        }
+        await this.sleep(120);
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, adsetIds.length) }, worker));
+    return out; // { [adset_id]: targeting | null }
+  }
+
+  async listAds(opts: ListOpts = {} , config:any ) {
+    const { apiVersion: vEnv, adAccountId, accessTokenUser } = config;
+    const apiVersion = opts.apiVersion || vEnv;
+
+    const fields = (opts.fields && opts.fields.length
+      ? opts.fields
+      : [
+        'id',
+        'name',
+        'adset_id',
+        'campaign_id',
+        'status',
+        'effective_status',
+        'created_time',
+        'updated_time',
+      ]).join(',');
+
+    const effective_status = JSON.stringify(
+      (opts.effective_status && opts.effective_status.length
+        ? opts.effective_status
+        : ['ACTIVE', 'PAUSED', 'ARCHIVED'])
+    );
+
+    const limit = Math.max(1, opts.limit ?? 200);
+    const rankBy = opts.rankBy ?? 'roas';       // NEW
+    const datePreset = opts.datePreset ?? 'last_7d'; // NEW
+
+    const baseUrl = `https://graph.facebook.com/${apiVersion}/act_${adAccountId}/ads`;
+    const baseParams = {
+      access_token: accessTokenUser,
+      fields,
+      limit,
+      effective_status,
+    };
+
+    const all: any[] = [];
+    let nextUrl: string | null = baseUrl;
+    let nextParams: Record<string, any> = { ...baseParams };
+
+    try {
+      // 1) Lấy toàn bộ Ads
+      while (nextUrl) {
+        const { data } = await axios.get(nextUrl, {
+          params: nextParams,
+          timeout: 30_000,
+        });
+
+        if (Array.isArray(data?.data)) {
+          all.push(...data.data);
+        }
+
+        const nxt = data?.paging?.next;
+        if (nxt) {
+          nextUrl = nxt;       // đã chứa full query
+          nextParams = {};     // tránh đè
+        } else {
+          nextUrl = null;
+        }
+      }
+
+      if (!all.length) {
+        return { count: 0, items: [], top3Campaigns: [] };
+      }
+
+      // 2) Gom campaign_id xuất hiện trong danh sách ads
+      const campaignIds = this.uniq(all.map(a => a.campaign_id).filter(Boolean));
+      if (!campaignIds.length) {
+        return { count: all.length, items: all, top3Campaigns: [] };
+      }
+
+      // 3) Lấy insights cấp campaign cho toàn account rồi lọc theo campaignIds
+      const insightsAll = await this.fetchCampaignInsights({
+        apiVersion,
+        adAccountId,
+        accessTokenUser,
+        datePreset,
+      });
+      const rows = insightsAll.filter((r: any) => campaignIds.includes(r.campaign_id));
+
+      // 4) Tính điểm hiệu quả theo rankBy
+      const byCamp = new Map<string, any[]>();
+      for (const r of rows) {
+        const arr = byCamp.get(r.campaign_id) || [];
+        arr.push(r);
+        byCamp.set(r.campaign_id, arr);
+      }
+
+      const scored: Array<{
+        campaign_id: string;
+        campaign_name: string;
+        metric: number;
+        meta: { avg_roas?: number | null; cpl?: number | null; ctr?: number | null; spend?: number };
+      }> = [];
+
+      for (const [campId, arr] of byCamp) {
+        const name = arr.find((x: any) => x.campaign_name)?.campaign_name || campId;
+
+        let spend = 0;
+        let clicks = 0;
+        let impressions = 0;
+        let leads = 0;
+        const roasVals: number[] = [];
+        const ctrVals: number[] = [];
+
+        for (const r of arr) {
+          const s = Number(r.spend ?? '0'); if (!Number.isNaN(s)) spend += s;
+          const c = Number(r.clicks ?? '0'); if (!Number.isNaN(c)) clicks += c;
+          const imp = Number(r.impressions ?? '0'); if (!Number.isNaN(imp)) impressions += imp;
+
+          const leadRow = (r.actions ?? []).find((a: any) => a.action_type === 'lead');
+          if (leadRow) {
+            const v = Number(leadRow.value);
+            if (!Number.isNaN(v)) leads += v;
+          }
+
+          const proas = (r.purchase_roas ?? []).find((p: any) => p.action_type === 'purchase');
+          if (proas && proas.value != null && !Number.isNaN(Number(proas.value))) {
+            roasVals.push(Number(proas.value));
+          }
+
+          if (r.ctr != null && !Number.isNaN(Number(r.ctr))) {
+            ctrVals.push(Number(r.ctr));
+          }
+        }
+
+        const avgROAS = roasVals.length ? (roasVals.reduce((a, b) => a + b, 0) / roasVals.length) : null;
+        const avgCTR = ctrVals.length ? (ctrVals.reduce((a, b) => a + b, 0) / ctrVals.length) : null;
+        const cpl = leads > 0 ? (spend / leads) : null;
+
+        let metric: number | null = null;
+        if (rankBy === 'roas') {
+          metric = avgROAS ?? (avgCTR ?? 0);
+        } else if (rankBy === 'cpl') {
+          metric = cpl != null ? -cpl : (avgCTR != null ? avgCTR : 0); // CPL thấp hơn tốt hơn
+        } else if (rankBy === 'ctr') {
+          metric = avgCTR ?? 0;
+        }
+
+        scored.push({
+          campaign_id: campId,
+          campaign_name: name,
+          metric: metric ?? 0,
+          meta: { avg_roas: avgROAS, cpl, ctr: avgCTR, spend },
+        });
+      }
+
+      // 5) Chọn Top 3
+      const top3 = scored.sort((a, b) => b.metric - a.metric).slice(0, 3);
+      if (!top3.length) {
+        return { count: all.length, items: top3, top3Campaigns: [] };
+      }
+
+      // 6) Lấy targeting của adset thuộc các campaign top
+      const topCampIds = new Set(top3.map(x => x.campaign_id));
+      const adsetsOfTop = this.uniq(
+        all.filter(a => topCampIds.has(a.campaign_id)).map(a => a.adset_id).filter(Boolean)
+      );
+
+      const adsetTargeting = await this.fetchAdsetTargetingBatch({
+        apiVersion,
+        accessTokenUser,
+        adsetIds: adsetsOfTop,
+      });
+
+      // 7) Gom targeting theo campaign & summary
+      const adsetsByCamp: Record<string, Array<{ adset_id: string; targeting: any }>> = {};
+      for (const a of all) {
+        if (!topCampIds.has(a.campaign_id)) continue;
+        const t = adsetTargeting[a.adset_id];
+        if (!t) continue;
+        if (!adsetsByCamp[a.campaign_id]) adsetsByCamp[a.campaign_id] = [];
+        if (!adsetsByCamp[a.campaign_id].some(x => x.adset_id === a.adset_id)) {
+          adsetsByCamp[a.campaign_id].push({ adset_id: a.adset_id, targeting: t });
+        }
+      }
+
+      const summarizeTargeting = (items: Array<{ targeting: any }>) => {
+        const countries = new Set<string>();
+        const cities: Array<{ key: string; name?: string }> = [];
+        const age = { min: Infinity, max: -Infinity };
+        const genders = new Set<number>();
+        const interests = new Map<string, string>();
+        for (const it of items) {
+          const tg = it.targeting || {};
+          const geo = tg.geo_locations || {};
+          (geo.countries || []).forEach((c: string) => countries.add(c));
+          (geo.cities || []).forEach((c: any) => cities.push({ key: String(c.key), name: c.name }));
+          if (typeof tg.age_min === 'number') age.min = Math.min(age.min, tg.age_min);
+          if (typeof tg.age_max === 'number') age.max = Math.max(age.max, tg.age_max);
+          (tg.genders || []).forEach((g: number) => genders.add(g));
+          (tg.interests || []).forEach((i: any) => {
+            const id = String(i.id ?? '');
+            if (id) interests.set(id, i.name || id);
+          });
+        }
+        return {
+          countries: Array.from(countries),
+          cities: cities.slice(0, 10),
+          age_min: age.min === Infinity ? null : age.min,
+          age_max: age.max === -Infinity ? null : age.max,
+          genders: Array.from(genders), // 1=Nam, 2=Nữ
+          interests: Array.from(interests).slice(0, 15).map(([id, name]) => ({ id, name })),
+        };
+      };
+
+      const top3Campaigns = top3.map(x => {
+        const adsets = adsetsByCamp[x.campaign_id] || [];
+        return {
+          campaign_id: x.campaign_id,
+          campaign_name: x.campaign_name,
+          metric_used: rankBy,
+          metric_value: x.metric,
+          performance: x.meta,                 // avg_roas / cpl / ctr / spend
+          targeting_summary: summarizeTargeting(adsets),
+          adsets,                              // danh sách adset + targeting
+        };
+      });
+
+      // 8) Trả về
+      return { count: all.length, items: top3, top3Campaigns };
+
+    } catch (err: any) {
+      const apiErr = err?.response?.data || err;
+      this.logger.error(`listAds error: ${JSON.stringify(apiErr)}`);
+      throw new InternalServerErrorException(apiErr);
+    }
+  }
+
+
 }

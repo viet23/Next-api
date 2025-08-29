@@ -1,6 +1,9 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { AnalyzeTargetingDto } from './dto/analyze-targeting.dto';
 import { OpenaiService } from './openai.service';
+import { JwtAuthGuard } from '@modules/auth/jwt-auth.guard';
+import { Authen } from '@decorators/authen.decorator';
+import { User } from '@models/user.entity';
 
 @Controller('openai')
 export class OpenaiController {
@@ -8,8 +11,9 @@ export class OpenaiController {
 
     /** 🟢 API phân tích targeting */
     @Post('analyze-targeting')
-    async analyze(@Body() dto: AnalyzeTargetingDto) {
-        return this.aiService.analyzeTargeting(dto.prompt);
+    @UseGuards(JwtAuthGuard)
+    async analyze(@Body() dto: AnalyzeTargetingDto, @Authen() user: User) {
+        return this.aiService.analyzeTargeting(dto.prompt , user);
     }
 
     /** 🟢 API rewrite content (copywriter GPT-4) */

@@ -13,5 +13,6 @@ import { AdInsight } from '@models/ad-insight.entity'
   imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd,AdInsight]), CqrsModule],
   providers: [FacebookAdsService],
   controllers: [FacebookAdsController],
+  exports: [FacebookAdsService],
 })
 export class FacebookModule {}

@@ -1,10 +1,13 @@
+import { User } from '@models/user.entity';
 import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import axios, { AxiosError } from 'axios';
+import { FacebookAdsService } from 'src/facebook-ads/facebook-ads.service';
+import { Repository } from 'typeorm';
 
 @Injectable()
 export class OpenaiService {
     private readonly logger = new Logger(OpenaiService.name);
-
     private readonly endpoint = 'https://api.openai.com/v1/chat/completions';
     private readonly model = 'gpt-5';
     private readonly timeout = 10 * 60 * 1000; // 10 phút
@@ -15,7 +18,8 @@ export class OpenaiService {
         timeout: this.timeout,
     });
 
-    constructor() {
+    constructor(@InjectRepository(User) private readonly userRepo: Repository<User>,
+        private readonly fbService: FacebookAdsService) {
         // mark start time
         this.http.interceptors.request.use((config) => {
             (config as any).__startedAt = Date.now();
@@ -40,26 +44,55 @@ export class OpenaiService {
     }
 
     /** 🟢 Phân tích targeting → luôn trả JSON array */
-    async analyzeTargeting(prompt: string) {
+    async analyzeTargeting(prompt: string, user: User) {
+        console.log(`user in analyzeTargeting-------`, user);
+
+        const userData = await this.userRepo
+            .createQueryBuilder('user')
+            .where('user.email = :email', { email: user?.email })
+            .getOne();
+
+        console.log(`userData in analyzeTargeting-------`, userData);
+        if (!userData?.accountAdsId || !userData?.accessTokenUser) {
+            throw new BadRequestException('User chưa cấu hình Facebook Ads (accountAdsId hoặc accessTokenUser)');
+        }
+        const config = { apiVersion: 'v19.0', adAccountId: userData.accountAdsId, accessTokenUser: userData.accessTokenUser }
+        const limit = '200';
+        const fields = [`id`, `name`, `adset_id`, `campaign_id`, `status`, `effective_status`, `created_time`, `updated_time`];
+        const effective_status = [`ACTIVE`, `PAUSED`, `ARCHIVED`];
+        const apiVersion = 'v19.0';
+        const top3Campaigns = await this.fbService.listAds({
+            limit: Math.max(1, parseInt(limit, 10)), // mặc định 200
+            fields,
+            effective_status,
+            apiVersion,
+        }, config);
+
+        console.log(`top3Campaigns-------`, JSON.stringify(top3Campaigns));
+
+        const detailedPrompt = `${prompt} Dựa trên các chiến dịch mẫu sau đây: ${JSON.stringify(top3Campaigns)}`
+
+
         const apiKey = process.env.OPENAI_API_KEY;
         if (!apiKey) throw new InternalServerErrorException('OPENAI_API_KEY is not set');
 
         try {
-            const { data, headers, status } = await this.http.post('/chat/completions',
+            const { data, headers, status } = await this.http.post(
+                '/chat/completions',
                 {
-                    model: this.model,
+                    model: 'gpt-4',
+                    temperature: 0, // tăng tính nhất quán khi yêu cầu JSON
                     messages: [
                         {
                             role: 'system',
                             content:
                                 'Bạn là máy phân tích targeting. Chỉ trả về JSON HỢP LỆ (DUY NHẤT MỘT MẢNG). Không trả thêm ký tự nào khác.',
                         },
-                        { role: 'user', content: prompt },
+                        { role: 'user', content: detailedPrompt },
                     ],
-                    // Lưu ý: với các model reasoning, dùng `max_completion_tokens` là hợp lệ (alias của max_tokens). :contentReference[oaicite:0]{index=0}
-                    max_completion_tokens: 4000,
-                    // Có thể bật định dạng chặt chẽ nếu cần:
-                    response_format: { type: 'json_object' },
+                    max_tokens: 4000, // dùng tham số chuẩn cho gpt-4
+                    // Lưu ý: Nếu muốn ép JSON nghiêm ngặt, dùng model hỗ trợ response_format (vd: gpt-4-1106-preview, gpt-4o/4.1/4o-mini)
+                    // response_format: { type: 'json_object' },
                 },
                 {
                     headers: this.buildHeaders(apiKey),
@@ -74,7 +107,7 @@ export class OpenaiService {
                 result: arr,
                 raw,
                 usage: data?.usage || null,
-                model: data?.model ?? this.model,
+                model: data?.model ?? 'gpt-4',
                 requestId: headers['x-request-id'] ?? null,
                 status,
             };
@@ -82,6 +115,7 @@ export class OpenaiService {
             this.handleOpenAiError(err, 'analyzeTargeting', { promptLen: prompt?.length });
         }
     }
+
 
     /** 🟢 Copywriter → trả plain text */
     /** 🟢 Copywriter → plain text (dùng GPT-4) */
