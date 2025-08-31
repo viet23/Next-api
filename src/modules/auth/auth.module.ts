@@ -16,7 +16,7 @@ import { SamlSigninUserCommandHandler } from './cqrs/commands/handler/saml-signi
 import { CookieAuthGuard } from './cookie-auth.guard'
 import { GetCurrentUserQueryHandler } from './cqrs/queries/handler/get-current-user.handler'
 import { Group } from '@models/group.entity'
-// import { SamlGtelpayStrategy } from './saml-gtelpay.strategy'
+import { SamlGtelpayStrategy } from './saml-gtelpay.strategy'
 import { UsersModule } from '@modules/users/users.module'
 import { GoogleStrategy } from './google.strategy'
 const CommandHandlers = [SignUpUserCommandHandler, SamlSigninUserCommandHandler]
@@ -42,7 +42,7 @@ const QueriesHandler = [
     ...QueriesHandler,
     JwtStrategy,
     SamlStrategy,
-    // SamlGtelpayStrategy,
+    SamlGtelpayStrategy,
     CookieAuthGuard,
     GoogleStrategy,
   ],

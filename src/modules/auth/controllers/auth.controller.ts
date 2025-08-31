@@ -106,29 +106,29 @@ export class AuthController {
   @UseGuards(AuthGuard('saml-gtelpay'))
   async samlLoginGtelpay() {}
 
-  // @Post('saml/callback-gtelpay')
-  // @UseGuards(AuthGuard('saml-gtelpay'))
-  // async samlCallbackGtelpay(@Req() req, @Res() res: Response) {
-  //   const { user } = req
-  //   const token = await this.commandBus.execute(new SamlSigninUserCommand({ email: user.nameID }))
-  //   res.cookie('jwt', token, {
-  //     httpOnly: true,
-  //     secure: true,
-  //   })
-  //   return res.redirect(process.env.SAML_REDIRECT)
-  // }
+  @Post('saml/callback-gtelpay')
+  @UseGuards(AuthGuard('saml-gtelpay'))
+  async samlCallbackGtelpay(@Req() req, @Res() res: Response) {
+    const { user } = req
+    const token = await this.commandBus.execute(new SamlSigninUserCommand({ email: user.nameID }))
+    res.cookie('jwt', token, {
+      httpOnly: true,
+      secure: true,
+    })
+    return res.redirect(process.env.SAML_REDIRECT)
+  }
 
-  // @Post('saml/callback')
-  // @UseGuards(AuthGuard('saml'))
-  // async samlCallback(@Req() req, @Res() res: Response) {
-  //   const { user } = req
-  //   const token = await this.commandBus.execute(new SamlSigninUserCommand({ email: user.nameID }))
-  //   res.cookie('jwt', token, {
-  //     httpOnly: true,
-  //     secure: true,
-  //   })
-  //   return res.redirect(process.env.SAML_REDIRECT)
-  // }
+  @Post('saml/callback')
+  @UseGuards(AuthGuard('saml'))
+  async samlCallback(@Req() req, @Res() res: Response) {
+    const { user } = req
+    const token = await this.commandBus.execute(new SamlSigninUserCommand({ email: user.nameID }))
+    res.cookie('jwt', token, {
+      httpOnly: true,
+      secure: true,
+    })
+    return res.redirect(process.env.SAML_REDIRECT)
+  }
 
   @Post('saml/login')
   @UseGuards(CookieAuthGuard)
