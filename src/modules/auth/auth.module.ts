@@ -19,6 +19,7 @@ import { Group } from '@models/group.entity'
 // import { SamlGtelpayStrategy } from './saml-gtelpay.strategy'
 import { UsersModule } from '@modules/users/users.module'
 import { GoogleStrategy } from './google.strategy'
+import { AuthService } from './auth.service';
 const CommandHandlers = [SignUpUserCommandHandler, SamlSigninUserCommandHandler]
 const QueriesHandler = [
   GetUserAuthQueryHandler,
@@ -45,6 +46,7 @@ const QueriesHandler = [
     // SamlGtelpayStrategy,
     CookieAuthGuard,
     GoogleStrategy,
+    AuthService,
   ],
   exports: [],
   controllers: [AuthController],

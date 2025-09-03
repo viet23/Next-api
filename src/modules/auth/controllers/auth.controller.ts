@@ -15,6 +15,8 @@ import { GetCurrentUserQuery } from '../cqrs/queries/impl/get-current-user.query
 
 import { JwtService } from '@nestjs/jwt'
 import { UsersService } from '@modules/users/users.service'
+import { RegisterTrialDto } from '../dto/register-trial.dto'
+import { AuthService } from '../auth.service'
 
 @Controller('auth')
 @ApiTags('auth')
@@ -25,7 +27,13 @@ export class AuthController {
     private readonly commandBus: CommandBus,
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
+    private readonly authService: AuthService,
   ) {}
+
+  @Post('register-trial')
+  async registerTrial(@Body() dto: RegisterTrialDto) {
+    return this.authService.registerTrial(dto);
+  }
 
   // Đăng nhập bằng username/password
   @Post('signin')

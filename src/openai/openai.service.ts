@@ -1,9 +1,12 @@
+import { TopcamFb } from '@models/topcam-fb.entity';
 import { User } from '@models/user.entity';
 import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import axios, { AxiosError } from 'axios';
 import { FacebookAdsService } from 'src/facebook-ads/facebook-ads.service';
 import { Repository } from 'typeorm';
+import { MoreThanOrEqual } from 'typeorm';
+import moment from 'moment';
 
 @Injectable()
 export class OpenaiService {
@@ -18,7 +21,9 @@ export class OpenaiService {
         timeout: this.timeout,
     });
 
+
     constructor(@InjectRepository(User) private readonly userRepo: Repository<User>,
+        @InjectRepository(TopcamFb) private readonly topcamFbRepo: Repository<TopcamFb>,
         private readonly fbService: FacebookAdsService) {
         // mark start time
         this.http.interceptors.request.use((config) => {
@@ -56,17 +61,84 @@ export class OpenaiService {
         if (!userData?.accountAdsId || !userData?.accessTokenUser) {
             throw new BadRequestException('User chưa cấu hình Facebook Ads (accountAdsId hoặc accessTokenUser)');
         }
-        const config = { apiVersion: 'v19.0', adAccountId: userData.accountAdsId, accessTokenUser: userData.accessTokenUser }
-        const limit = '200';
-        const fields = [`id`, `name`, `adset_id`, `campaign_id`, `status`, `effective_status`, `created_time`, `updated_time`];
-        const effective_status = [`ACTIVE`, `PAUSED`, `ARCHIVED`];
-        const apiVersion = 'v19.0';
-        const top3Campaigns = await this.fbService.listAds({
-            limit: Math.max(1, parseInt(limit, 10)), // mặc định 200
-            fields,
-            effective_status,
-            apiVersion,
-        }, config);
+
+        // const topcamData = await this.topcamFbRepo
+        //     .createQueryBuilder('topcam')
+        //     .where('topcam.userId = :userId', { userId: userData?.id })
+        //     .getOne();
+
+
+        // const config = { apiVersion: 'v19.0', adAccountId: userData.accountAdsId, accessTokenUser: userData.accessTokenUser }
+        // const limit = '200';
+        // const fields = [`id`, `name`, `adset_id`, `campaign_id`, `status`, `effective_status`, `created_time`, `updated_time`];
+        // const effective_status = [`ACTIVE`, `PAUSED`, `ARCHIVED`];
+        // const apiVersion = 'v19.0';
+        // const top3Campaigns = await this.fbService.listAds({
+        //     limit: Math.max(1, parseInt(limit, 10)), // mặc định 200
+        //     fields,
+        //     effective_status,
+        //     apiVersion,
+        // }, config);
+
+        const todayStart = moment().startOf('day').toDate();
+        const now = new Date();
+
+        // kiểm tra đã có dữ liệu update trong ngày chưa
+        let topcamData = await this.topcamFbRepo.findOne({
+            where: {
+                userId: userData?.id,
+                updatedAt: MoreThanOrEqual(todayStart),
+            },
+        });
+        let top3Campaigns: any = [];
+
+        if (!topcamData || !topcamData.topCam || (topcamData?.updatedAt < todayStart) || topcamData?.topCam?.length === 0 || topcamData?.topCam?.top3Campaigns?.length === 0 || topcamData?.topCam?.items?.length === 0) {
+            const config = {
+                apiVersion: 'v19.0',
+                adAccountId: userData.accountAdsId,
+                accessTokenUser: userData.accessTokenUser,
+            };
+
+            const limit = '200';
+            const fields = [
+                `id`,
+                `name`,
+                `adset_id`,
+                `campaign_id`,
+                `status`,
+                `effective_status`,
+                `created_time`,
+                `updated_time`,
+            ];
+            const effective_status = [`ACTIVE`, `PAUSED`, `ARCHIVED`];
+
+            top3Campaigns = await this.fbService.listAds(
+                {
+                    limit: Math.max(1, parseInt(limit, 10)), // mặc định 200
+                    fields,
+                    effective_status,
+                    apiVersion: config.apiVersion,
+                },
+                config,
+            );
+
+            console.log(`top3Campaigns-------`, JSON.stringify(top3Campaigns));
+
+            // Nếu record đã tồn tại thì update, nếu chưa thì insert
+            topcamData = await this.topcamFbRepo.save({
+                ...(topcamData || {}),
+                userId: String(userData.id),
+                topCam: top3Campaigns,
+                updatedAt: now,
+                // Ensure required fields are present
+                id: topcamData?.id ?? undefined,
+                generateBeforInsert: topcamData?.generateBeforInsert ?? null,
+                doBeforUpdate: topcamData?.doBeforUpdate ?? null,
+                createdAt: topcamData?.createdAt ?? new Date(),
+            });
+        }
+
+        // return topcamData;
 
         console.log(`top3Campaigns-------`, JSON.stringify(top3Campaigns));
 

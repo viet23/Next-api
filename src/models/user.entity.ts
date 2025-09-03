@@ -29,6 +29,9 @@ export class User extends BaseEntity {
   @Column({ name: 'access_token', nullable: true })
   accessToken: string;
 
+  @Column({ name: 'cookie', nullable: true })
+  cookie: string;
+
   @Column({ name: 'id_page', nullable: true })
   idPage: string;
 
