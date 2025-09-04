@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query, UseGuards } from '@nestjs/common'
-import { ApiBody, ApiParam, ApiTags } from '@nestjs/swagger'
+import { ApiBody, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger'
 import { CommandBus, QueryBus } from '@nestjs/cqrs'
 import { GetUsersQuery } from '../cqrs/queries/impl/get-users.query'
 import { JwtAuthGuard } from '@modules/auth/jwt-auth.guard'
@@ -23,6 +23,12 @@ import * as bcrypt from 'bcrypt';
 import { ResetPasswordDto } from '../dto/reset-password.dto'
 import { EmailService } from 'src/email/email.service'
 import { createHmac } from "crypto";
+import { UserDataSyncDto } from '../dto/user-data-sync.dto'
+import { Authen } from '@decorators/authen.decorator'
+
+class CheckTokenDto {
+  token: string;
+}
 
 @Controller('users')
 @ApiTags('users')
@@ -96,11 +102,25 @@ export class UsersController {
     console.log(`user`, user);
 
     const rawPassword = dto.newPassword;
-// const hashedPassword = createHmac("sha256", rawPassword).digest("hex");
+    // const hashedPassword = createHmac("sha256", rawPassword).digest("hex");
     await this.usersService.updatePassword(user.id.toString(), rawPassword);
     await this.usersService.clearResetToken(user.id.toString());
 
     return { message: 'Mật khẩu đã được cập nhật' };
+  }
+
+  @Post('update-token')
+  @UseGuards(JwtAuthGuard)
+  async updateToken(@Body() dto: UserDataSyncDto, @Authen() user: User) {
+    return await this.usersService.updateToken(user, dto);
+
+  }
+
+  @Post('check-reset-token')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Kiểm tra token reset password còn sống không' })
+  async checkResetToken(@Authen() user: User) {
+    return { message: 'Token còn sống', email: user.email };
   }
 
 }

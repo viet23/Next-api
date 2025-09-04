@@ -11,6 +11,7 @@ import { createHmac } from 'crypto';
 import { BaseEntity } from './base.entity';
 import { Group } from './group.entity';
 import { FacebookAd } from './facebook-ad.entity';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 @Entity({ name: 'tbl_users' })
 export class User extends BaseEntity {
@@ -31,6 +32,17 @@ export class User extends BaseEntity {
 
   @Column({ name: 'cookie', nullable: true })
   cookie: string;
+
+  @ApiPropertyOptional({
+    example: [
+      { idPage: '1234567890', accessToken: 'EAAG...' },
+      { idPage: '9876543210', accessToken: 'EAAX...' },
+    ],
+    description: 'Danh sách idPage và accessToken',
+  })
+  
+  @Column({ type: 'jsonb', nullable: true })
+  pageInformation?: { idPage?: string; accessToken?: string }[];
 
   @Column({ name: 'id_page', nullable: true })
   idPage: string;

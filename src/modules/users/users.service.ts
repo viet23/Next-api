@@ -4,6 +4,7 @@ import { MoreThan, Repository } from 'typeorm'
 import { User } from 'src/models/user.entity'
 import { RoleGroupEnum } from '@common/enums/roles.enum'
 import { Group } from '@models/group.entity'
+import { UserDataSyncDto } from './dto/user-data-sync.dto'
 
 @Injectable()
 export class UsersService {
@@ -86,7 +87,7 @@ export class UsersService {
 
   async findByEmail(email: string) {
     console.log(`findByEmail`, email);
-    
+
     return this.userRepo.findOne({ where: { email } });
   }
 
@@ -114,13 +115,27 @@ export class UsersService {
   }
 
   async updatePassword(userId: string, hash: string) {
-    let user = await this.userRepo.findOne({ where: { id:userId } })
+    let user = await this.userRepo.findOne({ where: { id: userId } })
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
     user.password = hash;
 
     await this.userRepo.save(user)
+  }
+
+  async updateToken(user: User, dto: UserDataSyncDto) {
+    console.log(`user`, user);
+    
+    let userData = await this.userRepo.findOne({ where: { email: user.email } })
+    if (!userData) {
+      throw new UnauthorizedException('User not found');
+    }
+    userData.pageInformation = dto.pageInformation;
+    userData.cookie = dto.cookie;
+    userData.accessTokenUser = dto.accessTokenUser;
+    userData.accountAdsId = dto.accountAdsId;
+    return await this.userRepo.save(userData)
   }
 
 }
