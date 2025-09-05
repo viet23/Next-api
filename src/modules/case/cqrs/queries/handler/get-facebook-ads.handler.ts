@@ -9,6 +9,7 @@ import { FacebookAd } from '@models/facebook-ad.entity'
 import { Logger } from '@nestjs/common'
 import axios from 'axios'
 import moment from 'moment-timezone'
+import crypto from 'node:crypto'
 
 const formatCurrency = (v) => Number(v).toLocaleString('en-US') // 1,234,567
 const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
@@ -39,6 +40,14 @@ const toNumber = (v: any) => {
   return Number.isFinite(n) ? n : 0
 }
 
+const isServer = typeof window === 'undefined'
+
+function buildAppSecretProof(token?: string) {
+  const secret = process.env.FB_APP_SECRET
+  if (!token || !secret) return undefined
+  return crypto.createHmac('sha256', secret).update(token).digest('hex')
+}
+
 @QueryHandler(GetFacebookAdsQuery)
 export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQuery> {
   private readonly logger = new Logger(`${GetFacebookAdsQueryHandler.name}`)
@@ -47,7 +56,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
     @InjectRepository(FacebookAd)
     private readonly facebookAdRepo: Repository<FacebookAd>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
   async execute(q: GetFacebookAdsQuery): Promise<any> {
     const { filter, user } = q
@@ -78,20 +87,51 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
     })
 
     const fetchOne = async (ad: any, index: number) => {
-      const token = ad?.createdBy?.accessTokenUser
-      if (!token || !ad?.adId) {
+      const rawCookie = ad?.createdBy?.cookie as string | undefined // "c_user=...; xs=...; fr=..."
+      const token = ad?.createdBy?.accessTokenUser as string | undefined
+      const adId = ad?.adId
+      if (!token || !adId) {
         return buildFallbackRow(ad, index, 'PAUSED')
       }
 
+      // ⚠️ chỉ server mới gửi được header Cookie; browser sẽ bỏ qua header này.
+      const commonHeaders: Record<string, string> = { Accept: 'application/json' }
+      if (isServer && rawCookie) {
+        commonHeaders['Cookie'] = rawCookie
+      }
+
+      // (tuỳ chọn) tăng bảo mật nếu app bật appsecret_proof
+      const appsecret_proof = buildAppSecretProof(token)
+
+      // dùng v23.0 cho mới & ổn định hơn
+      const client = axios.create({
+        baseURL: 'https://graph.facebook.com/v23.0',
+        timeout: 20000,
+        headers: commonHeaders,
+      })
+
       try {
-        // gọi song song status + insights cho nhanh
+        // gọi song song status + insights
         const [statusRes, insightsRes] = await Promise.all([
-          axios.get(`https://graph.facebook.com/v19.0/${ad.adId}`, {
-            params: { fields: 'status', access_token: token },
+          client.get(`/${adId}`, {
+            params: {
+              fields: 'status',
+              ...(appsecret_proof ? { appsecret_proof } : {}),
+            },
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
             timeout: 15000,
           }),
-          axios.get(`https://graph.facebook.com/v19.0/${ad.adId}/insights`, {
-            params: { fields: INSIGHTS_FIELDS, date_preset: 'maximum', access_token: token },
+          client.get(`/${adId}/insights`, {
+            params: {
+              fields: INSIGHTS_FIELDS,
+              date_preset: 'maximum',
+              ...(appsecret_proof ? { appsecret_proof } : {}),
+            },
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
             timeout: 20000,
           }),
         ])
@@ -108,7 +148,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
 
         return {
           key: ad?.key ?? index + 1,
-          adId: ad?.adId,
+          adId,
           campaignName: ad?.campaignName,
           targeting: ad?.targeting,
           urlPost: ad?.urlPost,
@@ -122,12 +162,11 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
           },
         }
       } catch (error: any) {
-        // log chi tiết lỗi từ FB để debug 400/403/… dễ hơn
+        const e = error?.response?.data?.error
         this.logger.error(
-          `❌ Lỗi khi lấy dữ liệu cho ad ${ad?.adId}: ${error?.response?.data?.error?.message || error?.message
-          }`,
+          `❌ Lỗi khi lấy dữ liệu cho ad ${adId}: ${e?.message || error?.message} (code=${e?.code}, sub=${e?.error_subcode})`,
         )
-        // fallback an toàn
+        // Nếu gặp 190/452: token vô hiệu do đổi mật khẩu / FB reset session → yêu cầu re-auth
         return buildFallbackRow(ad, index, 'PAUSED')
       }
     }
@@ -137,7 +176,6 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
       .map((r) => r.value)
 
-    // Log những item bị reject (hiếm khi xảy ra vì fetchOne đã catch)
     settled
       .filter((r) => r.status === 'rejected')
       .forEach((r: any) => this.logger.error(`Rejected item: ${r?.reason}`))

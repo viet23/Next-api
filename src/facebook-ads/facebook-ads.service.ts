@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common'
-import axios from 'axios'
+import axios, { AxiosInstance } from 'axios'
 import { CreateFacebookAdDto, AdsGoal } from './dto/facebook-ads.dto'
 import qs from 'qs'
 import { User } from '@models/user.entity'
@@ -9,6 +9,7 @@ import { FacebookAd } from '@models/facebook-ad.entity'
 import { AdInsightUpdateDTO } from './dto/ads-update.dto'
 import { AdInsight } from '@models/ad-insight.entity'
 import FormData from 'form-data'
+import crypto from 'node:crypto'
 
 type AnyDto = CreateFacebookAdDto & {
   messageDestination?: 'MESSENGER' | 'WHATSAPP' | 'INSTAGRAM_DIRECT'
@@ -19,28 +20,51 @@ type AnyDto = CreateFacebookAdDto & {
   instagramActorId?: string
 }
 
-// type ListOpts = {
-//   fields?: string[];
-//   effective_status?: string[];
-//   limit?: number;
-//   apiVersion?: string;
-// };
-
 type ListOpts = {
   fields?: string[];
   effective_status?: string[];
   limit?: number;
   apiVersion?: string;
-
-  // NEW: tuỳ chọn xếp hạng & thời gian
   rankBy?: 'roas' | 'cpl' | 'ctr';
-  datePreset?: string; // vd: 'last_7d', 'last_30d', 'today'
+  datePreset?: string; // 'last_7d', 'last_30d', 'today'
 };
-
 
 type MediaKind = 'video' | 'photo' | 'link' | 'status' | 'unknown'
 
-
+// ================= FB CLIENT (trong 1 file) =================
+const isServer = typeof window === 'undefined'
+function buildAppSecretProof(token?: string) {
+  const secret = process.env.FB_APP_SECRET
+  if (!token || !secret) return undefined
+  return crypto.createHmac('sha256', secret).update(token).digest('hex')
+}
+function createFbGraphClient(opts: {
+  token: string
+  cookie?: string
+  version?: string
+  timeoutMs?: number
+}): AxiosInstance {
+  const { token, cookie, version = 'v23.0', timeoutMs = 20_000 } = opts
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    Authorization: `Bearer ${token}`,
+  }
+  if (isServer && cookie) headers.Cookie = cookie
+  const client = axios.create({
+    baseURL: `https://graph.facebook.com/${version}`,
+    timeout: timeoutMs,
+    headers,
+  })
+  client.interceptors.request.use((config) => {
+    const proof = buildAppSecretProof(token)
+    if (proof) {
+      config.params = { ...(config.params || {}), appsecret_proof: proof }
+    }
+    return config
+  })
+  return client
+}
+// ============================================================
 
 @Injectable()
 export class FacebookAdsService {
@@ -50,8 +74,13 @@ export class FacebookAdsService {
     @InjectRepository(FacebookAd) private readonly facebookAdRepo: Repository<FacebookAd>,
   ) { }
 
-
   private readonly logger = new Logger(FacebookAdsService.name);
+
+  // Tạo FB client
+  private fb(token: string, cookie?: string, version = 'v23.0', timeoutMs = 20_000) {
+    return createFbGraphClient({ token, cookie, version, timeoutMs })
+  }
+
   // =============== Helpers ===============
   private mapGender(g?: 'all' | 'male' | 'female'): number[] | undefined {
     if (!g || g === 'all') return undefined
@@ -113,21 +142,20 @@ export class FacebookAdsService {
     return Array.from(new Set([initial, ...seq].filter(Boolean)))
   }
 
-  // ⚠️ ENGAGEMENT lọc theo loại nội dung
   private getPerfGoalSequenceForEngagement(initial: string, media: MediaKind): string[] {
     const base: string[] = [
       'PROFILE_AND_PAGE_ENGAGEMENT',
       'POST_ENGAGEMENT',
       'PAGE_LIKES',
       'EVENT_RESPONSES',
-      'THRUPLAY',               // chỉ cho video
+      'THRUPLAY',
       'PROFILE_VISIT',
       'REACH',
       'IMPRESSIONS',
       'AUTOMATIC_OBJECTIVE',
     ]
     let seq = Array.from(new Set([initial, ...base]))
-    if (media !== 'video') seq = seq.filter(g => g !== 'THRUPLAY') // tránh 1815159
+    if (media !== 'video') seq = seq.filter(g => g !== 'THRUPLAY')
     return seq
   }
 
@@ -152,11 +180,13 @@ export class FacebookAdsService {
   }
 
   // 🔎 Lấy loại nội dung postId (để chọn goal phù hợp cho Engagement)
-  private async detectMediaKind(postId: string, accessTokenUser: string): Promise<MediaKind> {
+  private async detectMediaKind(postId: string, fb: AxiosInstance): Promise<MediaKind> {
     if (!postId) return 'unknown'
     try {
-      const { data } = await axios.get(`https://graph.facebook.com/v19.0/${postId}`, {
-        params: { fields: 'attachments{media_type},type', access_token: accessTokenUser },
+      this.logger.log(`STEP detectMediaKind → GET /${postId} (attachments,type)`)
+      const { data } = await fb.get(`/${postId}`, {
+        params: { fields: 'attachments{media_type},type' },
+        timeout: 15_000,
       })
       const type: string | undefined = data?.type
       const att = data?.attachments?.data?.[0]
@@ -180,13 +210,15 @@ export class FacebookAdsService {
     }
   }
 
-  private async searchInterestsByNames(names: string[], accessToken: string): Promise<{ id: string; name: string }[]> {
+  private async searchInterestsByNames(names: string[], fb: AxiosInstance): Promise<{ id: string; name: string }[]> {
     const results: { id: string; name: string }[] = []
     const uniq = Array.from(new Set((names || []).filter(Boolean).map(s => s.trim())))
     for (const q of uniq) {
       try {
-        const { data } = await axios.get('https://graph.facebook.com/v19.0/search', {
-          params: { type: 'adinterest', q, limit: 5, access_token: accessToken },
+        this.logger.log(`STEP searchInterest '${q}' → GET /search?type=adinterest`)
+        const { data } = await fb.get('/search', {
+          params: { type: 'adinterest', q, limit: 5 },
+          timeout: 15_000,
         })
         const top = Array.isArray(data?.data) ? data.data[0] : undefined
         if (top?.id) results.push({ id: top.id, name: top.name })
@@ -198,17 +230,18 @@ export class FacebookAdsService {
   private async validateBehaviors(
     behaviors: Array<{ id: string; name?: string }> | undefined,
     adAccountId: string,
-    accessTokenUser: string
+    fb: AxiosInstance
   ): Promise<Array<{ id: string; name?: string }>> {
     if (!behaviors?.length) return []
     const okList: Array<{ id: string; name?: string }> = []
     for (const b of behaviors) {
       if (!b?.id || !/^\d+$/.test(String(b.id))) continue
       try {
-        const { data } = await axios.get(
-          `https://graph.facebook.com/v19.0/act_${adAccountId}/targetingsearch`,
-          { params: { type: 'adTargetingCategory', class: 'behaviors', q: b.name || '', limit: 50, access_token: accessTokenUser } }
-        )
+        this.logger.log(`STEP validateBehavior ${b.id} → GET /act_${adAccountId}/targetingsearch`)
+        const { data } = await fb.get(`/act_${adAccountId}/targetingsearch`, {
+          params: { type: 'adTargetingCategory', class: 'behaviors', q: b.name || '', limit: 50 },
+          timeout: 20_000,
+        })
         const rows: any[] = Array.isArray(data?.data) ? data.data : []
         const found = rows.find((r: any) => String(r?.id) === String(b.id))
         if (found) okList.push({ id: String(b.id), name: b.name || found.name })
@@ -221,8 +254,8 @@ export class FacebookAdsService {
 
   private async buildTargeting(
     dto: AnyDto,
-    accessTokenUser: string,
-    adAccountId: string
+    adAccountId: string,
+    fb: AxiosInstance
   ) {
     const clampedRadius = this.clampRadiusMiles(dto.radius)
     const geo_locations =
@@ -258,7 +291,7 @@ export class FacebookAdsService {
       : []
     const needLookup = [...new Set([...manualInterestNames, ...aiKeywords])]
     if (needLookup.length > 0) {
-      const lookedUp = await this.searchInterestsByNames(needLookup, accessTokenUser)
+      const lookedUp = await this.searchInterestsByNames(needLookup, fb)
       if (lookedUp.length) targeting.interests = lookedUp.slice(0, 10)
     }
 
@@ -267,7 +300,7 @@ export class FacebookAdsService {
         .filter((b: any) => b?.id && /^\d+$/.test(String(b.id)))
         .map((b: any) => ({ id: String(b.id), name: b.name }))
         .slice(0, 10)
-      const valid = await this.validateBehaviors(raw, adAccountId, accessTokenUser)
+      const valid = await this.validateBehaviors(raw, adAccountId, fb)
       if (valid.length) targeting.behaviors = valid
     }
 
@@ -275,7 +308,7 @@ export class FacebookAdsService {
   }
 
   // =============== Upload ảnh ===============
-  private async uploadAdImageFromUrl(adAccountId: string, imageUrl: string, accessTokenUser: string): Promise<string> {
+  private async uploadAdImageFromUrl(adAccountId: string, imageUrl: string, fb: AxiosInstance): Promise<string> {
     const parseHash = (data: any): string | undefined => {
       try {
         const images = data?.images
@@ -286,34 +319,36 @@ export class FacebookAdsService {
     }
 
     try {
-      const res = await axios.post(
-        `https://graph.facebook.com/v19.0/act_${adAccountId}/adimages`,
-        qs.stringify({ url: imageUrl, access_token: accessTokenUser }),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 },
+      this.logger.log(`STEP uploadImage by URL → POST /act_${adAccountId}/adimages (url)`)
+      const res = await fb.post(
+        `/act_${adAccountId}/adimages`,
+        qs.stringify({ url: imageUrl }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15_000 },
       )
       const hash = parseHash(res.data)
       if (hash) return hash
     } catch { }
 
     try {
+      this.logger.log(`STEP uploadImage multipart → GET ${imageUrl}`)
       const imgResp = await axios.get(imageUrl, {
         responseType: 'arraybuffer',
         headers: { 'User-Agent': 'Mozilla/5.0' },
-        timeout: 20000,
+        timeout: 20_000,
         maxRedirects: 3,
         validateStatus: (s) => s >= 200 && s < 400,
       })
 
       const form = new FormData()
-      form.append('access_token', accessTokenUser)
       const contentType = imgResp.headers['content-type'] || 'image/jpeg'
       const filename = `adimage.${contentType.includes('png') ? 'png' : 'jpg'}`
       form.append('source', Buffer.from(imgResp.data), { filename, contentType })
 
-      const uploadRes = await axios.post(
-        `https://graph.facebook.com/v19.0/act_${adAccountId}/adimages`,
+      this.logger.log(`STEP uploadImage multipart → POST /act_${adAccountId}/adimages`)
+      const uploadRes = await fb.post(
+        `/act_${adAccountId}/adimages`,
         form,
-        { headers: form.getHeaders(), timeout: 20000 }
+        { headers: form.getHeaders(), timeout: 20_000 }
       )
       const images = uploadRes?.data?.images
       if (!images) throw new Error('Không lấy được image_hash (multipart).')
@@ -327,10 +362,9 @@ export class FacebookAdsService {
     }
   }
 
-  private async ensureImageHash(dto: AnyDto, adAccountId: string, accessTokenUser: string): Promise<string> {
+  private async ensureImageHash(dto: AnyDto, adAccountId: string, fb: AxiosInstance): Promise<string> {
     if (dto.imageHash) return dto.imageHash
-    if (dto.imageUrl) return await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, accessTokenUser)
-    // với TRAFFIC link ad, image không bắt buộc; nhưng nếu muốn ảnh thì cần hash
+    if (dto.imageUrl) return await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, fb)
     throw new BadRequestException('Thiếu ảnh cho quảng cáo: vui lòng truyền imageHash hoặc imageUrl.')
   }
 
@@ -338,33 +372,46 @@ export class FacebookAdsService {
   async createFacebookAd(dto0: CreateFacebookAdDto, user: User) {
     try {
       const dto = dto0 as AnyDto
-      console.log(`📥 Input DTO:`, dto)
-      console.log(`📥 Input user:`, user)
-
+      this.logger.log(`STEP 0: Input DTO & user loaded`)
       const userData = await this.userRepo.findOne({ where: { email: user.email } })
       if (!userData) throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`)
 
-      const { accessTokenUser, accountAdsId: adAccountId, idPage: pageId } = userData
+      const { accessTokenUser, accountAdsId: adAccountId, idPage: pageId, cookie: rawCookie } = userData
       if (!accessTokenUser) throw new BadRequestException(`Người dùng chưa liên kết Facebook hoặc thiếu accessTokenUser.`)
-      if (!adAccountId) throw new BadRequestException(`Người dùng chưa có accountAdsId. Vui lòng kiểm tra lại cài đặt tài khoản quảng cáo.`)
+      if (!adAccountId) throw new BadRequestException(`Người dùng chưa có accountAdsId. Vui lòng kiểm tra lại.`)
       if (!pageId && dto.goal !== AdsGoal.LEADS) throw new BadRequestException(`Người dùng chưa liên kết Fanpage (idPage).`)
 
+      const fb = this.fb(accessTokenUser, rawCookie, 'v23.0')
+
+      this.logger.log(`STEP 1: Detect media kind (if needed)`)
       const mediaKind: MediaKind = dto.goal === AdsGoal.ENGAGEMENT && dto.postId
-        ? await this.detectMediaKind(dto.postId, accessTokenUser)
+        ? await this.detectMediaKind(dto.postId, fb)
         : 'unknown'
-      console.log('🧩 Detected media kind:', mediaKind)
+      this.logger.log(`STEP 1 DONE: mediaKind=${mediaKind}`)
 
-      const campaignId = await this.createCampaign(dto, accessTokenUser, adAccountId)
+      this.logger.log(`STEP 2: Create Campaign`)
+      const campaignId = await this.createCampaign(dto, adAccountId, fb)
+      this.logger.log(`STEP 2 DONE: campaignId=${campaignId}`)
 
+      this.logger.log(`STEP 3: Create AdSet with perf goal & destination`)
       const { adSetId, usedCampaignId, usedPerfGoal } =
-        await this.createAdSetWithPerfGoalAndDestination(dto, campaignId, accessTokenUser, pageId, adAccountId, mediaKind)
+        await this.createAdSetWithPerfGoalAndDestination(dto, campaignId, pageId, adAccountId, mediaKind, fb)
+      this.logger.log(`STEP 3 DONE: adSetId=${adSetId} usedCampaignId=${usedCampaignId} perf=${usedPerfGoal}`)
 
-      const creativeId = await this.createCreative(dto, accessTokenUser, adAccountId, pageId)
-      const ad = await this.createAd(dto, adSetId, creativeId, accessTokenUser, adAccountId, usedCampaignId, pageId)
+      this.logger.log(`STEP 4: Create Creative`)
+      const creativeId = await this.createCreative(dto, adAccountId, pageId, fb)
+      this.logger.log(`STEP 4 DONE: creativeId=${creativeId}`)
 
-      await this.activateCampaign(usedCampaignId, accessTokenUser)
-      await this.activateAdSet(adSetId, accessTokenUser)
+      this.logger.log(`STEP 5: Create Ad`)
+      const ad = await this.createAd(dto, adSetId, creativeId, adAccountId, usedCampaignId, pageId, fb)
+      this.logger.log(`STEP 5 DONE: adId=${ad.id}`)
 
+      this.logger.log(`STEP 6: Activate Campaign & AdSet`)
+      await this.activateCampaign(usedCampaignId, fb)
+      await this.activateAdSet(adSetId, fb)
+      this.logger.log(`STEP 6 DONE`)
+
+      this.logger.log(`STEP 7: Save DB record`)
       await this.facebookAdRepo.save({
         adId: ad.id,
         campaignName: dto.campaignName,
@@ -378,42 +425,41 @@ export class FacebookAdsService {
         status: 'ACTIVE',
         createdBy: userData,
       })
+      this.logger.log(`STEP 7 DONE: DB saved`)
 
-      console.log(`ℹ️ Final performance goal used: ${usedPerfGoal}`)
+      this.logger.log(`STEP 8: Completed. Final perf goal: ${usedPerfGoal}`)
       return ad
     } catch (error: any) {
       const errorMessage = error?.response?.data?.error?.error_user_msg || error.message
-      console.error('❌ createFacebookAd failed:', error?.response?.data || error)
+      this.logger.error('❌ createFacebookAd failed:', error?.response?.data || error)
       throw new BadRequestException(`Tạo quảng cáo thất bại: ${errorMessage}`)
     }
   }
 
   private async createCampaign(
     dto: AnyDto,
-    accessTokenUser: string,
     adAccountId: string,
+    fb: AxiosInstance,
     overrideObjective?: string,
   ): Promise<string> {
     try {
       const objective = overrideObjective || this.mapCampaignObjective(dto.goal)
-      console.log('🧭 Campaign objective =', objective)
-
-      const res = await axios.post(
-        `https://graph.facebook.com/v19.0/act_${adAccountId}/campaigns`,
+      this.logger.log(`STEP createCampaign → POST /act_${adAccountId}/campaigns objective=${objective}`)
+      const res = await fb.post(
+        `/act_${adAccountId}/campaigns`,
         qs.stringify({
           name: dto.campaignName,
           objective,
           status: 'PAUSED',
           special_ad_categories: '["NONE"]',
-          access_token: accessTokenUser,
         }),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       )
-      console.log(`✅ Campaign created: ${res.data.id}`)
+      this.logger.log(`✅ Campaign created: ${res.data.id}`)
       return res.data.id
     } catch (error: any) {
       const message = error?.response?.data?.error?.error_user_msg || error.message
-      console.error('❌ Campaign creation error:', error?.response?.data)
+      this.logger.error('❌ Campaign creation error:', error?.response?.data)
       throw new BadRequestException(`Tạo chiến dịch thất bại: ${message}`)
     }
   }
@@ -429,16 +475,17 @@ export class FacebookAdsService {
   private async createAdSetWithPerfGoalAndDestination(
     dto: AnyDto,
     campaignId: string,
-    accessTokenUser: string,
     pageId: string,
     adAccountId: string,
     mediaKind: MediaKind,
+    fb: AxiosInstance,
   ): Promise<{ adSetId: string; usedPerfGoal: string; usedCampaignId: string }> {
     this.validateIsoTime('start_time', dto.startTime)
     this.validateIsoTime('end_time', dto.endTime)
 
-    let targetingPayload = await this.buildTargeting(dto, accessTokenUser, adAccountId)
-    console.log(`targetingPayload++++++++++++`, targetingPayload)
+    this.logger.log(`STEP createAdSet: build targeting`)
+    let targetingPayload = await this.buildTargeting(dto, adAccountId, fb)
+    this.logger.log(`STEP createAdSet: targeting built: ${JSON.stringify(targetingPayload)}`)
 
     const initial = this.mapAdsetOptimization(dto.goal)
     const sequence = this.buildPerfGoalSequence(dto, initial.optimization_goal, mediaKind)
@@ -472,18 +519,17 @@ export class FacebookAdsService {
       start_time: dto.startTime,
       end_time: dto.endTime,
       status: 'PAUSED',
-      access_token: accessTokenUser,
     }
 
-    const makeRequest = async (tp: any, goal: string, campId: string, opts?: { noPromotedObject?: boolean }) => {
-      console.log(`▶️ Trying optimization_goal='${goal}' on campaign ${campId}`)
+    const makeRequest = (tp: any, goal: string, campId: string, opts?: { noPromotedObject?: boolean }) => {
+      this.logger.log(`STEP createAdSet → POST /act_${adAccountId}/adsets goal=${goal} camp=${campId}`)
       const body: any = { ...payloadBase, optimization_goal: goal, campaign_id: campId, targeting: JSON.stringify(tp) }
       if (isMessage) body.destination_type = destination
       if (!opts?.noPromotedObject && dto.goal !== AdsGoal.LEADS && pageId) {
         body.promoted_object = JSON.stringify(basePromotedObject)
       }
-      return axios.post(
-        `https://graph.facebook.com/v19.0/act_${adAccountId}/adsets`,
+      return fb.post(
+        `/act_${adAccountId}/adsets`,
         qs.stringify(body),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       )
@@ -497,10 +543,10 @@ export class FacebookAdsService {
 
       if (sub === 1487079 || /behaviors?.+invalid/i.test(msg)) {
         if (currentPayload.behaviors) {
-          console.warn('⚠️ Behaviors invalid. Retrying WITHOUT behaviors...')
+          this.logger.warn('⚠️ Behaviors invalid → retry WITHOUT behaviors')
           const { behaviors, ...rest } = currentPayload
           const res2 = await makeRequest(rest, goal, campId)
-          console.log(`✅ AdSet created (no behaviors): ${res2.data.id}`)
+          this.logger.log(`✅ AdSet created (no behaviors): ${res2.data.id}`)
           return { id: res2.data.id }
         }
       }
@@ -509,48 +555,43 @@ export class FacebookAdsService {
         const hasCustomLoc = currentPayload?.geo_locations?.custom_locations?.length > 0
         if (hasCustomLoc) {
           currentPayload.geo_locations.custom_locations = currentPayload.geo_locations.custom_locations.map((loc: any) => ({
-            ...loc,
-            radius: 50,
-            distance_unit: 'mile',
+            ...loc, radius: 50, distance_unit: 'mile',
           }))
-          console.warn('⚠️ Radius too wide. Retrying with radius=50 miles...')
+          this.logger.warn('⚠️ Radius issue → retry radius=50')
           const res3 = await makeRequest(currentPayload, goal, campId)
-          console.log(`✅ AdSet created (radius=50): ${res3.data.id}`)
+          this.logger.log(`✅ AdSet created (radius=50): ${res3.data.id}`)
           return { id: res3.data.id }
         }
       }
 
       if (sub === 1870227 || /Advantage Audience Flag Required/i.test(msg)) {
         const patched = { ...currentPayload, targeting_automation: { advantage_audience: 1 } }
-        console.warn('⚠️ Advantage flag missing. Retrying with advantage_audience=1...')
+        this.logger.warn('⚠️ Advantage flag missing → retry with advantage_audience=1')
         const res4 = await makeRequest(patched, goal, campId)
-        console.log(`✅ AdSet created (advantage=1): ${res4.data.id}`)
+        this.logger.log(`✅ AdSet created (advantage=1): ${res4.data.id}`)
         return { id: res4.data.id }
       }
 
       if (isEngagement && (/performance goal|mục tiêu hiệu quả|incompatible/i.test(msg)) && (blame || sub === 2490408)) {
-        console.warn('⚠️ ENGAGEMENT incompatible. Retrying WITHOUT promoted_object...')
+        this.logger.warn('⚠️ ENGAGEMENT incompatible → retry WITHOUT promoted_object')
         const res5 = await makeRequest(currentPayload, goal, campId, { noPromotedObject: true })
-        console.log(`✅ AdSet created (no promoted_object): ${res5.data.id}`)
+        this.logger.log(`✅ AdSet created (no promoted_object): ${res5.data.id}`)
         return { id: res5.data.id }
       }
 
       if (/performance goal|mục tiêu hiệu quả|incompatible/i.test(msg)) {
         if (currentPayload?.targeting_automation) {
           const { targeting_automation, ...rest } = currentPayload
-          console.warn('⚠️ Incompatible. Retrying WITHOUT targeting_automation...')
+          this.logger.warn('⚠️ Incompatible → retry WITHOUT targeting_automation')
           const res6 = await makeRequest(rest, goal, campId)
-          console.log(`✅ AdSet created (no targeting_automation): ${res6.data.id}`)
+          this.logger.log(`✅ AdSet created (no targeting_automation): ${res6.data.id}`)
           return { id: res6.data.id }
         }
-      }
-
-      if (/performance goal|mục tiêu hiệu quả|incompatible/i.test(msg)) {
         if (currentPayload?.interests?.length || currentPayload?.flexible_spec || currentPayload?.detailed_targeting) {
           const { interests, flexible_spec, detailed_targeting, ...rest } = currentPayload
-          console.warn('⚠️ Incompatible. Retrying WITHOUT interests (broad)...')
+          this.logger.warn('⚠️ Incompatible → retry WITHOUT interests (broad)')
           const res7 = await makeRequest(rest, goal, campId)
-          console.log(`✅ AdSet created (broad, no interests): ${res7.data.id}`)
+          this.logger.log(`✅ AdSet created (broad): ${res7.data.id}`)
           return { id: res7.data.id }
         }
       }
@@ -561,7 +602,7 @@ export class FacebookAdsService {
     for (const goal of sequence) {
       try {
         const res = await makeRequest(targetingPayload, goal, campaignId)
-        console.log(`✅ AdSet created with goal '${goal}': ${res.data.id}`)
+        this.logger.log(`✅ AdSet created with goal '${goal}': ${res.data.id}`)
         return { adSetId: res.data.id, usedPerfGoal: goal, usedCampaignId: campaignId }
       } catch (e: any) {
         try {
@@ -572,7 +613,7 @@ export class FacebookAdsService {
           const sub = err?.error_subcode
           const msg = err?.error_user_msg || err?.message || ''
           if (sub === 2490408 || /performance goal|mục tiêu hiệu quả|selected performance goal/i.test(msg)) {
-            console.warn(`⚠️ Performance goal '${goal}' incompatible on current campaign. Trying next...`)
+            this.logger.warn(`⚠️ goal '${goal}' incompatible on current campaign → try next`)
             continue
           }
           throw ee
@@ -584,14 +625,14 @@ export class FacebookAdsService {
     const fallbackObjectives = ['OUTCOME_ENGAGEMENT', 'OUTCOME_AWARENESS', 'OUTCOME_TRAFFIC'].filter(obj => obj !== baseObjective)
 
     for (const fbObj of fallbackObjectives) {
-      console.warn(`⚠️ All goals failed. Creating fallback campaign with ${fbObj}...`)
-      const fbCampaignId = await this.createCampaign(dto, accessTokenUser, adAccountId, fbObj)
+      this.logger.warn(`⚠️ All goals failed → create fallback campaign ${fbObj}`)
+      const fbCampaignId = await this.createCampaign(dto, adAccountId, fb, fbObj)
       const fbSequence = sequence
 
       for (const goal of fbSequence) {
         try {
           const res = await makeRequest(targetingPayload, goal, fbCampaignId)
-          console.log(`✅ AdSet created on fallback '${fbObj}' with goal '${goal}': ${res.data.id}`)
+          this.logger.log(`✅ AdSet created on fallback '${fbObj}' with goal '${goal}': ${res.data.id}`)
           return { adSetId: res.data.id, usedPerfGoal: goal, usedCampaignId: fbCampaignId }
         } catch (e: any) {
           try {
@@ -602,7 +643,7 @@ export class FacebookAdsService {
             const sub = err?.error_subcode
             const msg = err?.error_user_msg || err?.message || ''
             if (sub === 2490408 || /performance goal|mục tiêu hiệu quả|selected performance goal/i.test(msg)) {
-              console.warn(`⚠️ Performance goal '${goal}' incompatible on fallback '${fbObj}'. Trying next...`)
+              this.logger.warn(`⚠️ goal '${goal}' incompatible on fallback '${fbObj}' → try next`)
               continue
             }
             throw ee
@@ -612,33 +653,29 @@ export class FacebookAdsService {
     }
 
     throw new BadRequestException(
-      `Performance goal hiện tại không tương thích với campaign objective. ` +
-      `Đã thử các phương án cứu (bỏ behaviors, radius=50, Advantage flag, bỏ interests/promoted_object) ` +
-      `và thử OUTCOME_ENGAGEMENT / OUTCOME_AWARENESS / OUTCOME_TRAFFIC nhưng vẫn không được.`
+      `Performance goal hiện tại không tương thích với campaign objective (đã thử các phương án cứu & fallback objectives).`
     )
   }
 
   private async createCreative(
     dto0: CreateFacebookAdDto,
-    accessTokenUser: string,
     adAccountId: string,
     pageId: string,
+    fb: AxiosInstance,
   ): Promise<string> {
     try {
       const dto = dto0 as AnyDto
 
-      // ✅ TRAFFIC: BẮT BUỘC LINK AD (không dùng postId để tránh 1815520)
       if (dto.goal === AdsGoal.TRAFFIC) {
         const link = (dto.urlWebsite || dto.linkUrl || '').trim()
         if (!/^https?:\/\//i.test(link) || /facebook\.com|fb\.com/i.test(link)) {
-          throw new BadRequestException('urlWebsite không hợp lệ cho LINK_CLICKS. Vui lòng dùng liên kết ngoài (http/https) không phải Facebook.')
+          throw new BadRequestException('urlWebsite không hợp lệ cho LINK_CLICKS. Vui lòng dùng liên kết ngoài.')
         }
 
-        // Ảnh không bắt buộc cho link ad; nếu có imageUrl/imageHash thì thêm
         let image_hash: string | undefined
         if (dto.imageHash) image_hash = dto.imageHash
         else if (dto.imageUrl) {
-          try { image_hash = await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, accessTokenUser) } catch { }
+          try { image_hash = await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, fb) } catch { }
         }
 
         const link_data: any = {
@@ -649,86 +686,71 @@ export class FacebookAdsService {
         if (image_hash) link_data.image_hash = image_hash
 
         const object_story_spec = { page_id: pageId, link_data }
-        const res = await axios.post(
-          `https://graph.facebook.com/v19.0/act_${adAccountId}/adcreatives`,
-          qs.stringify({
-            name: dto.campaignName,
-            object_story_spec: JSON.stringify(object_story_spec),
-            access_token: accessTokenUser,
-          }),
+        this.logger.log(`STEP createCreative TRAFFIC → POST /act_${adAccountId}/adcreatives`)
+        const res = await fb.post(
+          `/act_${adAccountId}/adcreatives`,
+          qs.stringify({ name: dto.campaignName, object_story_spec: JSON.stringify(object_story_spec) }),
           { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
         )
-        console.log(`✅ Creative created (LINK AD): ${res.data.id}`)
+        this.logger.log(`✅ Creative created (LINK AD): ${res.data.id}`)
         return res.data.id
       }
 
-      // MESSAGE: CTM creative
       if (dto.goal === AdsGoal.MESSAGE) {
         const destination = (dto.messageDestination || 'MESSENGER') as 'MESSENGER' | 'WHATSAPP' | 'INSTAGRAM_DIRECT'
-        const image_hash = await this.ensureImageHash(dto, adAccountId, accessTokenUser)
+        const imgHash = dto.imageHash || await this.ensureImageHash(dto, adAccountId, fb)
 
         let call_to_action: any
         if (destination === 'WHATSAPP') {
           if (!dto.whatsappNumber) throw new BadRequestException('Thiếu whatsappNumber cho Click-to-WhatsApp.')
           call_to_action = { type: 'WHATSAPP_MESSAGE', value: { app_destination: 'WHATSAPP', whatsapp_number: dto.whatsappNumber } }
-        } else if (destination === 'INSTAGRAM_DIRECT') {
-          call_to_action = { type: 'MESSAGE_PAGE', value: { app_destination: 'MESSENGER' } }
         } else {
           call_to_action = { type: 'MESSAGE_PAGE', value: { app_destination: 'MESSENGER' } }
         }
 
         const linkUrl = dto.linkUrl || dto.urlWebsite || 'https://www.alloneads.com/'
-
         const object_story_spec = {
           page_id: pageId,
-          link_data: { link: linkUrl, message: dto.caption || '', image_hash, call_to_action },
+          link_data: { link: linkUrl, message: dto.caption || '', image_hash: imgHash, call_to_action },
         }
 
-        const res = await axios.post(
-          `https://graph.facebook.com/v19.0/act_${adAccountId}/adcreatives`,
-          qs.stringify({
-            name: dto.campaignName,
-            object_story_spec: JSON.stringify(object_story_spec),
-            access_token: accessTokenUser,
-          }),
+        this.logger.log(`STEP createCreative CTM → POST /act_${adAccountId}/adcreatives`)
+        const res = await fb.post(
+          `/act_${adAccountId}/adcreatives`,
+          qs.stringify({ name: dto.campaignName, object_story_spec: JSON.stringify(object_story_spec) }),
           { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
         )
-        console.log(`✅ Creative created (CTM): ${res.data.id}`)
+        this.logger.log(`✅ Creative created (CTM): ${res.data.id}`)
         return res.data.id
       }
 
-      // ENGAGEMENT/LEADS: boost post
       if (!dto.postId) throw new BadRequestException('Thiếu postId cho bài viết.')
-      const res = await axios.post(
-        `https://graph.facebook.com/v19.0/act_${adAccountId}/adcreatives`,
-        qs.stringify({
-          name: dto.campaignName,
-          object_story_id: dto.postId,
-          access_token: accessTokenUser,
-        }),
+      this.logger.log(`STEP createCreative BOOST → POST /act_${adAccountId}/adcreatives`)
+      const res = await fb.post(
+        `/act_${adAccountId}/adcreatives`,
+        qs.stringify({ name: dto.campaignName, object_story_id: dto.postId }),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       )
-      console.log(`✅ Creative created: ${res.data.id}`)
+      this.logger.log(`✅ Creative created: ${res.data.id}`)
       return res.data.id
     } catch (error: any) {
       const message = error?.response?.data?.error?.error_user_msg || error.message
-      console.error('❌ Creative creation error:', error?.response?.data || error)
+      this.logger.error('❌ Creative creation error:', error?.response?.data || error)
       throw new BadRequestException(`Tạo Creative thất bại: ${message}`)
     }
   }
 
-  // 🔁 Fallback khi bắt buộc pixel ở bước tạo Ad (trừ MESSAGE)
   private async createAwarenessFallbackAndAd(
     dto: AnyDto,
-    accessTokenUser: string,
     adAccountId: string,
     pageId: string,
-    creativeId: string
+    creativeId: string,
+    fb: AxiosInstance
   ) {
-    console.warn('⚠️ Pixel required. Falling back to OUTCOME_AWARENESS → IMPRESSIONS...')
-    const fbCampaignId = await this.createCampaign(dto, accessTokenUser, adAccountId, 'OUTCOME_AWARENESS')
+    this.logger.warn('⚠️ Pixel required → fallback OUTCOME_AWARENESS / IMPRESSIONS')
+    const fbCampaignId = await this.createCampaign(dto, adAccountId, fb, 'OUTCOME_AWARENESS')
 
-    const targeting = await this.buildTargeting(dto, accessTokenUser, adAccountId)
+    const targeting = await this.buildTargeting(dto, adAccountId, fb)
 
     const payload = {
       name: `${dto.campaignName} - Awareness Fallback`,
@@ -742,27 +764,25 @@ export class FacebookAdsService {
       status: 'PAUSED',
       targeting: JSON.stringify(targeting),
       promoted_object: JSON.stringify({ page_id: pageId }),
-      access_token: accessTokenUser,
     }
 
-    const adsetRes = await axios.post(
-      `https://graph.facebook.com/v19.0/act_${adAccountId}/adsets`,
-      qs.stringify(payload),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
-    )
+    this.logger.log(`STEP fallback → POST /act_${adAccountId}/adsets`)
+    const adsetRes = await fb.post(`/act_${adAccountId}/adsets`, qs.stringify(payload), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    })
     const fbAdSetId = adsetRes.data.id
-    console.log(`✅ Fallback AdSet created: ${fbAdSetId}`)
+    this.logger.log(`✅ Fallback AdSet created: ${fbAdSetId}`)
 
-    const adRes = await axios.post(`https://graph.facebook.com/v19.0/act_${adAccountId}/ads`, null, {
+    this.logger.log(`STEP fallback → POST /act_${adAccountId}/ads`)
+    const adRes = await fb.post(`/act_${adAccountId}/ads`, null, {
       params: {
         name: `${dto.campaignName} - Awareness Ad`,
         adset_id: fbAdSetId,
         creative: JSON.stringify({ creative_id: creativeId }),
         status: 'PAUSED',
-        access_token: accessTokenUser,
       },
     })
-    console.log(`✅ Fallback Ad created: ${adRes.data.id}`)
+    this.logger.log(`✅ Fallback Ad created: ${adRes.data.id}`)
     return { ad: adRes.data, fbCampaignId, fbAdSetId }
   }
 
@@ -770,25 +790,26 @@ export class FacebookAdsService {
     dto0: CreateFacebookAdDto,
     adSetId: string,
     creativeId: string,
-    accessTokenUser: string,
     adAccountId: string,
     usedCampaignId?: string,
     pageId?: string,
+    fb?: AxiosInstance,
   ) {
     const dto = dto0 as AnyDto
+    if (!fb) throw new InternalServerErrorException('FB client missing')
     try {
-      const res = await axios.post(`https://graph.facebook.com/v19.0/act_${adAccountId}/ads`, null, {
+      this.logger.log(`STEP createAd → POST /act_${adAccountId}/ads`)
+      const res = await fb.post(`/act_${adAccountId}/ads`, null, {
         params: {
           name: dto.campaignName,
           adset_id: adSetId,
           creative: JSON.stringify({ creative_id: creativeId }),
           status: 'PAUSED',
-          access_token: accessTokenUser,
         },
       })
       const adId = res.data.id
-      console.log(`✅ Ad created: ${adId}`)
-      await this.activateAd(adId, accessTokenUser)
+      this.logger.log(`✅ Ad created: ${adId}`)
+      await this.activateAd(adId, fb)
       return res.data
     } catch (error: any) {
       const err = error?.response?.data?.error
@@ -797,10 +818,10 @@ export class FacebookAdsService {
 
       if ((sub === 1487888 || /pixel|theo dõi|tracking/i.test(msg)) && dto.goal !== AdsGoal.MESSAGE && pageId) {
         try {
-          const fallback = await this.createAwarenessFallbackAndAd(dto as AnyDto, accessTokenUser, adAccountId, pageId, creativeId)
-          await this.activateCampaign(fallback.fbCampaignId, accessTokenUser)
-          await this.activateAdSet(fallback.fbAdSetId, accessTokenUser)
-          await this.activateAd(fallback.ad.id, accessTokenUser)
+          const fallback = await this.createAwarenessFallbackAndAd(dto as AnyDto, adAccountId, pageId, creativeId, fb)
+          await this.activateCampaign(fallback.fbCampaignId, fb)
+          await this.activateAdSet(fallback.fbAdSetId, fb)
+          await this.activateAd(fallback.ad.id, fb)
           return fallback.ad
         } catch (e: any) {
           const m = e?.response?.data?.error?.error_user_msg || e.message
@@ -809,125 +830,64 @@ export class FacebookAdsService {
       }
 
       const message = err?.error_user_msg || err?.message
-      console.error('❌ Ad creation error:', error?.response?.data || error)
+      this.logger.error('❌ Ad creation error:', error?.response?.data || error)
       throw new BadRequestException(`Tạo quảng cáo thất bại: ${message}`)
     }
   }
 
-  private async activateCampaign(campaignId: string, accessTokenUser: string) {
-    await axios.post(
-      `https://graph.facebook.com/v19.0/${campaignId}`,
-      qs.stringify({ status: 'ACTIVE', access_token: accessTokenUser }),
+  private async activateCampaign(campaignId: string, fb: AxiosInstance) {
+    this.logger.log(`STEP activateCampaign → POST /${campaignId}`)
+    await fb.post(
+      `/${campaignId}`,
+      qs.stringify({ status: 'ACTIVE' }),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
     )
-    console.log(`🚀 Campaign ${campaignId} activated successfully.`)
+    this.logger.log(`🚀 Campaign ${campaignId} activated.`)
   }
 
-  private async activateAdSet(adSetId: string, accessTokenUser: string) {
-    await axios.post(
-      `https://graph.facebook.com/v19.0/${adSetId}`,
-      qs.stringify({ status: 'ACTIVE', access_token: accessTokenUser }),
+  private async activateAdSet(adSetId: string, fb: AxiosInstance) {
+    this.logger.log(`STEP activateAdSet → POST /${adSetId}`)
+    await fb.post(
+      `/${adSetId}`,
+      qs.stringify({ status: 'ACTIVE' }),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
     )
-    console.log(`🚀 AdSet ${adSetId} activated successfully.`)
+    this.logger.log(`🚀 AdSet ${adSetId} activated.`)
   }
 
-  private async activateAd(adId: string, accessTokenUser: string) {
+  private async activateAd(adId: string, fb: AxiosInstance) {
     try {
-      await axios.post(
-        `https://graph.facebook.com/v19.0/${adId}`,
-        qs.stringify({ status: 'ACTIVE', access_token: accessTokenUser }),
+      this.logger.log(`STEP activateAd → POST /${adId}`)
+      await fb.post(
+        `/${adId}`,
+        qs.stringify({ status: 'ACTIVE' }),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       )
-      console.log(`🚀 Ad ${adId} activated successfully.`)
+      this.logger.log(`🚀 Ad ${adId} activated.`)
     } catch (error: any) {
       const message = error?.response?.data?.error?.error_user_msg || error.message
-      console.error(`❌ Failed to activate Ad ${adId}:`, error?.response?.data || error)
+      this.logger.error(`❌ Failed to activate Ad ${adId}:`, error?.response?.data || error)
       throw new BadRequestException(`Kích hoạt quảng cáo thất bại: ${message}`)
     }
   }
 
   async updateAdInsight(id: string, dto: AdInsightUpdateDTO) {
     try {
+      this.logger.log(`STEP updateAdInsight: id=${id} isActive=${dto.isActive}`)
       const adInsight = await this.adInsightRepo
         .createQueryBuilder('adInsight')
         .where('adInsight.id=:id', { id })
         .getOne()
       adInsight.isActive = dto.isActive
-      return await this.adInsightRepo.save(adInsight)
+      const saved = await this.adInsightRepo.save(adInsight)
+      this.logger.log(`STEP updateAdInsight DONE`)
+      return saved
     } catch (error: any) {
       const errorMessage = error?.response?.data?.error?.error_user_msg || error.message
-      console.error('❌ updateAdInsight failed:', error?.response?.data || error)
+      this.logger.error('❌ updateAdInsight failed:', error?.response?.data || error)
       throw new BadRequestException(`Cập nhập quảng cáo thất bại: ${errorMessage}`)
     }
   }
-
-
-  // async listAds(opts: ListOpts = {}) {
-  //   const { apiVersion: vEnv, adAccountId, accessTokenUser } = this.getEnv();
-  //   const apiVersion = opts.apiVersion || vEnv;
-
-  //   const fields = (opts.fields && opts.fields.length
-  //     ? opts.fields
-  //     : [
-  //         'id',
-  //         'name',
-  //         'adset_id',
-  //         'campaign_id',
-  //         'status',
-  //         'effective_status',
-  //         'created_time',
-  //         'updated_time',
-  //       ]).join(',');
-
-  //   const effective_status = JSON.stringify(
-  //     (opts.effective_status && opts.effective_status.length
-  //       ? opts.effective_status
-  //       : ['ACTIVE', 'PAUSED', 'ARCHIVED'])
-  //   );
-
-  //   const limit = Math.max(1, opts.limit ?? 200);
-
-  //   const baseUrl = `https://graph.facebook.com/${apiVersion}/act_${adAccountId}/ads`;
-  //   const baseParams = {
-  //     access_token: accessTokenUser,
-  //     fields,
-  //     limit,
-  //     effective_status,
-  //   };
-
-  //   const all: any[] = [];
-  //   let nextUrl: string | null = baseUrl;
-  //   let nextParams: Record<string, any> = { ...baseParams };
-
-  //   try {
-  //     while (nextUrl) {
-  //       const { data } = await axios.get(nextUrl, {
-  //         params: nextParams,
-  //         timeout: 30_000,
-  //         // headers: { 'User-Agent': 'AllOneAds/1.0' }, // tuỳ chọn
-  //       });
-
-  //       if (Array.isArray(data?.data)) {
-  //         all.push(...data.data);
-  //       }
-
-  //       const nxt = data?.paging?.next;
-  //       if (nxt) {
-  //         nextUrl = nxt;       // đã chứa full query
-  //         nextParams = {};     // tránh đè
-  //       } else {
-  //         nextUrl = null;
-  //       }
-  //     }
-
-  //     return { count: all.length, items: all };
-  //   } catch (err: any) {
-  //     const apiErr = err?.response?.data || err;
-  //     this.logger.error(`listAds error: ${JSON.stringify(apiErr)}`);
-  //     throw new InternalServerErrorException(apiErr);
-  //   }
-  // }
 
   // NEW: tiện ích nhỏ
   private uniq<T>(arr: T[]): T[] {
@@ -941,13 +901,12 @@ export class FacebookAdsService {
   private async fetchCampaignInsights(args: {
     apiVersion: string;
     adAccountId: string;
-    accessTokenUser: string;
+    fb: AxiosInstance;
     datePreset: string;
   }) {
-    const { apiVersion, adAccountId, accessTokenUser, datePreset } = args;
-    const base = `https://graph.facebook.com/${apiVersion}/act_${adAccountId}/insights`;
+    const { apiVersion, adAccountId, fb, datePreset } = args;
+    const base = `/act_${adAccountId}/insights`;
     const params = new URLSearchParams({
-      access_token: accessTokenUser,
       level: 'campaign',
       fields: [
         'campaign_id',
@@ -967,10 +926,11 @@ export class FacebookAdsService {
       limit: '500',
     });
 
-    let url: string | null = `${base}?${params.toString()}`;
+    let url: string | null = `${fb.defaults.baseURL?.replace(/\/$/, '')}${base}?${params.toString()}`;
     const rows: any[] = [];
     while (url) {
-      const { data } = await axios.get(url, { timeout: 30_000 });
+      this.logger.log(`STEP insights paginate → GET ${url.substring(0, 80)}...`)
+      const { data } = await fb.get(url);
       rows.push(...(data?.data ?? []));
       url = data?.paging?.next ?? null;
       if (url) await this.sleep(150);
@@ -981,10 +941,10 @@ export class FacebookAdsService {
   // NEW: Lấy targeting cho nhiều adset_id
   private async fetchAdsetTargetingBatch(args: {
     apiVersion: string;
-    accessTokenUser: string;
+    fb: AxiosInstance;
     adsetIds: string[];
   }) {
-    const { apiVersion, accessTokenUser, adsetIds } = args;
+    const { fb, adsetIds } = args;
     const out: Record<string, any> = {};
     const ids = [...adsetIds];
     const CONCURRENCY = 4;
@@ -993,10 +953,8 @@ export class FacebookAdsService {
       while (ids.length) {
         const id = ids.shift()!;
         try {
-          const { data } = await axios.get(
-            `https://graph.facebook.com/${apiVersion}/${id}`,
-            { params: { access_token: accessTokenUser, fields: 'id,name,targeting' }, timeout: 30_000 }
-          );
+          this.logger.log(`STEP fetchAdsetTargeting → GET /${id}?fields=id,name,targeting`)
+          const { data } = await fb.get(`/${id}`, { params: { fields: 'id,name,targeting' }, timeout: 30_000 });
           out[id] = data?.targeting ?? null;
         } catch (e: any) {
           this.logger.error(`fetchAdsetTargetingBatch error ${id}: ${JSON.stringify(e?.response?.data || e)}`);
@@ -1010,9 +968,10 @@ export class FacebookAdsService {
     return out; // { [adset_id]: targeting | null }
   }
 
-  async listAds(opts: ListOpts = {} , config:any ) {
-    const { apiVersion: vEnv, adAccountId, accessTokenUser } = config;
+  async listAds(opts: ListOpts = {}, config: any) {
+    const { apiVersion: vEnv, adAccountId, accessTokenUser, cookie } = config;
     const apiVersion = opts.apiVersion || vEnv;
+    const fb = this.fb(accessTokenUser, cookie, apiVersion)
 
     const fields = (opts.fields && opts.fields.length
       ? opts.fields
@@ -1034,16 +993,11 @@ export class FacebookAdsService {
     );
 
     const limit = Math.max(1, opts.limit ?? 200);
-    const rankBy = opts.rankBy ?? 'roas';       // NEW
-    const datePreset = opts.datePreset ?? 'last_7d'; // NEW
+    const rankBy = opts.rankBy ?? 'roas';
+    const datePreset = opts.datePreset ?? 'last_7d';
 
-    const baseUrl = `https://graph.facebook.com/${apiVersion}/act_${adAccountId}/ads`;
-    const baseParams = {
-      access_token: accessTokenUser,
-      fields,
-      limit,
-      effective_status,
-    };
+    const baseUrl = `/act_${adAccountId}/ads`;
+    const baseParams = { fields, limit, effective_status };
 
     const all: any[] = [];
     let nextUrl: string | null = baseUrl;
@@ -1052,44 +1006,31 @@ export class FacebookAdsService {
     try {
       // 1) Lấy toàn bộ Ads
       while (nextUrl) {
-        const { data } = await axios.get(nextUrl, {
-          params: nextParams,
-          timeout: 30_000,
-        });
-
-        if (Array.isArray(data?.data)) {
-          all.push(...data.data);
-        }
-
+        this.logger.log(`STEP listAds paginate → GET ${nextUrl} with params?=${Object.keys(nextParams).length>0}`)
+        const { data } = await fb.get(nextUrl, { params: nextParams, timeout: 30_000 });
+        if (Array.isArray(data?.data)) all.push(...data.data);
         const nxt = data?.paging?.next;
-        if (nxt) {
-          nextUrl = nxt;       // đã chứa full query
-          nextParams = {};     // tránh đè
-        } else {
-          nextUrl = null;
-        }
+        if (nxt) { nextUrl = nxt; nextParams = {}; } else { nextUrl = null; }
       }
 
       if (!all.length) {
+        this.logger.log(`STEP listAds: no ads found`)
         return { count: 0, items: [], top3Campaigns: [] };
       }
 
-      // 2) Gom campaign_id xuất hiện trong danh sách ads
+      // 2) Gom campaign_id
       const campaignIds = this.uniq(all.map(a => a.campaign_id).filter(Boolean));
       if (!campaignIds.length) {
+        this.logger.log(`STEP listAds: no campaign ids`)
         return { count: all.length, items: all, top3Campaigns: [] };
       }
 
-      // 3) Lấy insights cấp campaign cho toàn account rồi lọc theo campaignIds
-      const insightsAll = await this.fetchCampaignInsights({
-        apiVersion,
-        adAccountId,
-        accessTokenUser,
-        datePreset,
-      });
+      // 3) Insights campaign toàn account rồi lọc
+      this.logger.log(`STEP listAds: fetch campaign insights datePreset=${datePreset}`)
+      const insightsAll = await this.fetchCampaignInsights({ apiVersion, adAccountId, fb, datePreset });
       const rows = insightsAll.filter((r: any) => campaignIds.includes(r.campaign_id));
 
-      // 4) Tính điểm hiệu quả theo rankBy
+      // 4) Tính metric
       const byCamp = new Map<string, any[]>();
       for (const r of rows) {
         const arr = byCamp.get(r.campaign_id) || [];
@@ -1143,7 +1084,7 @@ export class FacebookAdsService {
         if (rankBy === 'roas') {
           metric = avgROAS ?? (avgCTR ?? 0);
         } else if (rankBy === 'cpl') {
-          metric = cpl != null ? -cpl : (avgCTR != null ? avgCTR : 0); // CPL thấp hơn tốt hơn
+          metric = cpl != null ? -cpl : (avgCTR != null ? avgCTR : 0);
         } else if (rankBy === 'ctr') {
           metric = avgCTR ?? 0;
         }
@@ -1156,21 +1097,23 @@ export class FacebookAdsService {
         });
       }
 
-      // 5) Chọn Top 3
+      // 5) Top 3
       const top3 = scored.sort((a, b) => b.metric - a.metric).slice(0, 3);
       if (!top3.length) {
+        this.logger.log(`STEP listAds: no top3 (empty scored)`)
         return { count: all.length, items: top3, top3Campaigns: [] };
       }
 
-      // 6) Lấy targeting của adset thuộc các campaign top
+      // 6) Targeting của adset thuộc campaign top
       const topCampIds = new Set(top3.map(x => x.campaign_id));
       const adsetsOfTop = this.uniq(
         all.filter(a => topCampIds.has(a.campaign_id)).map(a => a.adset_id).filter(Boolean)
       );
 
+      this.logger.log(`STEP listAds: fetch adset targeting for ${adsetsOfTop.length} adsets`)
       const adsetTargeting = await this.fetchAdsetTargetingBatch({
         apiVersion,
-        accessTokenUser,
+        fb,
         adsetIds: adsetsOfTop,
       });
 
@@ -1222,13 +1165,14 @@ export class FacebookAdsService {
           campaign_name: x.campaign_name,
           metric_used: rankBy,
           metric_value: x.metric,
-          performance: x.meta,                 // avg_roas / cpl / ctr / spend
+          performance: x.meta,
           targeting_summary: summarizeTargeting(adsets),
-          adsets,                              // danh sách adset + targeting
+          adsets,
         };
       });
 
       // 8) Trả về
+      this.logger.log(`STEP listAds DONE: total=${all.length} top3=${top3.length}`)
       return { count: all.length, items: top3, top3Campaigns };
 
     } catch (err: any) {
@@ -1237,6 +1181,4 @@ export class FacebookAdsService {
       throw new InternalServerErrorException(apiErr);
     }
   }
-
-
 }

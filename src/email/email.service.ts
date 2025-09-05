@@ -10,6 +10,8 @@ import { Repository, Raw, LessThanOrEqual, MoreThanOrEqual } from 'typeorm'
 import { User } from '@models/user.entity'
 import { CreditTransaction } from '@models/credit-ransaction .entity'
 import { AdInsight } from '@models/ad-insight.entity'
+import crypto from 'node:crypto'
+
 const formatCurrency = (v) => Number(v).toLocaleString('en-US') // 1,234,567
 const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
 
@@ -43,14 +45,11 @@ export class EmailService {
     });
   }
 
-
-
   async sendCredits(data: any, user: User) {
     // const { fullName, email, phone, zalo } = data
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
 
     console.log(`data`, data);
-
 
     const mailOptions = {
       from: '2203viettt@gmail.com',
@@ -111,14 +110,11 @@ export class EmailService {
   @Cron('0 9 * * *', {
     timeZone: 'Asia/Ho_Chi_Minh', // ⏰ đúng giờ VN
   })
-
   // @Cron('*/30 * * * * *')
   async reportAdInsights() {
     const today = moment().tz('Asia/Ho_Chi_Minh').startOf('day')
     const tomorrow = moment(today).add(1, 'day')
     const yesterday = moment(today).subtract(1, 'day')
-    // const since = moment().subtract(1, 'month').format('YYYY-MM-DD')
-    // const until = moment().format('YYYY-MM-DD')
 
     this.logger.log(`🔎 Bắt đầu quét dữ liệu quảng cáo lúc ${moment().format('YYYY-MM-DD HH:mm:ss')}`)
 
@@ -138,7 +134,23 @@ export class EmailService {
 
     for (const ad of ads) {
       try {
-        // 1) Lấy insights từ FB Graph
+        // ====== ÉP GỬI COOKIE + (tuỳ chọn) APP SECRET PROOF ======
+        const token = ad.createdBy?.accessTokenUser as string | undefined
+        const rawCookie = ad.createdBy?.cookie as string | undefined // "c_user=...; xs=...; fr=..."
+
+        // Header chung: chỉ server (NestJS) mới gửi được Cookie
+        const headers: Record<string, string> = { Accept: 'application/json' }
+        if (rawCookie) headers.Cookie = rawCookie
+        if (token) headers.Authorization = `Bearer ${token}`
+
+        // Nếu app bật appsecret_proof trong cài đặt, tính proof để thêm vào params
+        const appsecret = process.env.FB_APP_SECRET
+        const appsecret_proof =
+          token && appsecret
+            ? crypto.createHmac('sha256', appsecret).update(token).digest('hex')
+            : undefined
+
+        // 1) Lấy insights từ FB Graph (ép Cookie trong headers)
         const fbRes = await axios.get(`https://graph.facebook.com/v19.0/${ad.adId}/insights`, {
           params: {
             fields: [
@@ -156,11 +168,14 @@ export class EmailService {
               'actions',
               'action_values',
               'video_avg_time_watched_actions',
-              'purchase_roas'
+              'purchase_roas',
             ].join(','),
             date_preset: 'maximum',
-            access_token: ad.createdBy?.accessTokenUser,
+            ...(appsecret_proof ? { appsecret_proof } : {}),
+            // Không truyền access_token trong params nữa khi đã có Authorization header (an toàn log hơn).
+            // Nếu bạn muốn vẫn truyền query cho chắc: thêm access_token: token
           },
+          headers,
           timeout: 20000,
         });
 
@@ -186,7 +201,7 @@ export class EmailService {
         const clicks = toNum(data.clicks);
         const inlineLinkClicks = toNum(data.inline_link_clicks);
         const spend = toNum(data.spend);
-        const ctr = toNum(data.ctr) * 100; // FB trả CTR theo %, đôi khi đã là %, tùy API. Nếu đã %, bỏ *100.
+        const ctr = toNum(data.ctr) * 100; // nếu API đã trả CTR là %, bỏ *100
         const cpm = toNum(data.cpm);
         const cpc = toNum(data.cpc);
 
@@ -216,7 +231,7 @@ YÊU CẦU: Trả về DUY NHẤT JSON theo schema:
   "tong_quan": "1–2 câu tổng hợp",
   "goi_y": ["...", "..."] // 2–3 mục
 }
-KHÔNG thêm chữ thừa, KHÔNG markdown.`;
+KHÔNG thêm chữ thừa, KHÔNG markdown.`
 
         const userPrompt = `
 Dưới đây là dữ liệu quảng cáo:
@@ -233,7 +248,7 @@ Lưu ý:
 - Nếu thiếu benchmark, đánh giá tương đối theo mối quan hệ chỉ số (CTR thấp + CPM cao → hiệu quả kém).
 - Chỉ đưa tối đa 3 gợi ý có tác động lớn nhất.
 
-Trả về đúng JSON như schema đã nêu.`;
+Trả về đúng JSON như schema đã nêu.`
 
         // Retry đơn giản cho OpenAI
         const callOpenAI = async () => {
@@ -245,7 +260,6 @@ Trả về đúng JSON như schema đã nêu.`;
             ],
             temperature: 0.2,
             max_tokens: 600,
-            // Nếu model hỗ trợ JSON mode: bật để chặn text thừa
             // @ts-ignore
             response_format: { type: 'json_object' },
           };
@@ -264,7 +278,6 @@ Trả về đúng JSON như schema đã nêu.`;
           try {
             openaiRes = await callOpenAI();
           } catch (e1: any) {
-            // Fallback nếu response_format bị từ chối bởi model
             const fallbackBody = {
               model: 'gpt-4',
               messages: [
@@ -284,7 +297,6 @@ Trả về đúng JSON như schema đã nêu.`;
           }
 
           const raw = openaiRes.data?.choices?.[0]?.message?.content ?? '{}';
-          // Parse an toàn
           const safeSlice = (t: string) => {
             const start = t.indexOf('{');
             const end = t.lastIndexOf('}');
@@ -292,7 +304,6 @@ Trả về đúng JSON như schema đã nêu.`;
           };
           aiJson = JSON.parse(safeSlice(raw));
 
-          // Sắp xếp đánh giá theo ưu tiên: Kém → Trung bình → Tốt
           const priority = { 'Kém': 0, 'Trung bình': 1, 'Tốt': 2 } as const;
           if (Array.isArray(aiJson?.danh_gia)) {
             aiJson!.danh_gia = aiJson!.danh_gia.sort(
@@ -330,7 +341,6 @@ Trả về đúng JSON như schema đã nêu.`;
             return { label, value };
           });
 
-        // Render bảng đánh giá & gợi ý (nếu có AI)
         const renderEvalTable = (r: AIReturn | null) => {
           if (!r?.danh_gia?.length) return '<p>Không có đánh giá từ AI.</p>';
           const badge = (muc: string) => {
@@ -367,7 +377,6 @@ Trả về đúng JSON như schema đã nêu.`;
         };
 
         const recommendationStr = aiJson ? JSON.stringify(aiJson) : 'Không có khuyến nghị.';
-        // 5) Email HTML – thay vì JSON thô, dùng bảng & bullet
         const htmlReport = `
   <h3>📢 Thống kê quảng cáo</h3>
   <p><strong>Ad ID:</strong> ${ad.adId}</p>
@@ -422,8 +431,8 @@ Trả về đúng JSON như schema đã nêu.`;
             cpcVnd: String(cpc),
 
             totalEngagement: String(totalEngagement),
-            engagementDetails: JSON.stringify(engagementItems), // JSON sạch, dễ dùng lại
-            recommendation: recommendationStr, // JSON AI (nếu có) hoặc chuỗi báo không có
+            engagementDetails: JSON.stringify(engagementItems),
+            recommendation: recommendationStr,
             htmlReport: String(htmlReport || ''),
 
             userId: ad.createdBy?.id ? String(ad.createdBy.id) : null,
@@ -433,10 +442,10 @@ Trả về đúng JSON như schema đã nêu.`;
           this.logger.error(`❗️ Lỗi lưu DB ad ${ad.adId}: ${saveErr.message}`, saveErr?.stack);
         }
       } catch (error: any) {
-        this.logger.error(`❌ Lỗi khi lấy dữ liệu cho ad ${ad.adId}: ${error.message}`);
+        const e = error?.response?.data?.error
+        this.logger.error(`❌ Lỗi khi lấy dữ liệu cho ad ${ad.adId}: ${e?.message || error.message} (code=${e?.code}, sub=${e?.error_subcode})`);
       }
     }
-
 
     this.logger.log(`✅ Đã hoàn tất quét dữ liệu quảng cáo.`)
   }

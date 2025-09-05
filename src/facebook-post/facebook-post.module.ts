@@ -5,10 +5,13 @@ import { HttpModule } from '@nestjs/axios';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CqrsModule } from '@nestjs/cqrs';
 import { FacebookPost } from '@models/facebook_post.entity';
+import { User } from '@models/user.entity';
 
 @Module({
-  imports: [HttpModule, TypeOrmModule.forFeature([FacebookPost]), CqrsModule],
+  imports: [HttpModule, TypeOrmModule.forFeature([FacebookPost,User]), CqrsModule],
   controllers: [FacebookPostController],
-  providers: [FacebookPostService]
+  providers: [FacebookPostService],
+  exports: [FacebookPostService],
+
 })
 export class FacebookPostModule {}

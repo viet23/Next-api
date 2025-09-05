@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query, UseGuards } from '@nestjs/common'
 import { FacebookAdsService } from './facebook-ads.service'
 import { CreateFacebookAdDto } from './dto/facebook-ads.dto'
 import { ApiParam, ApiTags } from '@nestjs/swagger'
@@ -6,11 +6,14 @@ import { JwtAuthGuard } from '@modules/auth/jwt-auth.guard'
 import { User } from '@models/user.entity'
 import { Authen } from '@decorators/authen.decorator'
 import { AdInsightUpdateDTO } from './dto/ads-update.dto'
+import { FacebookPostService } from 'src/facebook-post/facebook-post.service'
 
 @ApiTags('facebook-ads')
 @Controller('facebook-ads')
 export class FacebookAdsController {
-  constructor(private readonly fbService: FacebookAdsService) { }
+  constructor(private readonly fbService: FacebookAdsService,
+     private readonly fbpostService: FacebookPostService,
+  ) { }
 
   @Post('create')
   @UseGuards(JwtAuthGuard)
@@ -48,5 +51,16 @@ export class FacebookAdsController {
       apiVersion,
     }, config);
   }
+
+    @Get('graph')
+    @UseGuards(JwtAuthGuard)
+    async fetchFromGraph( @Authen() user: User) {
+      console.log(`pageId hâhahahaahahah`, user);
+      
+      if (!user?.email) {
+        throw new BadRequestException('Không xác định được email người dùng từ token.');
+      }
+      return this.fbpostService.fetchPagePostsForUser(user);
+    }
 
 }
