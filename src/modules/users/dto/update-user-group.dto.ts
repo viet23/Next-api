@@ -23,6 +23,9 @@ export class UpdateUserGroupDto {
   phone: string
 
   @ApiProperty()
+  cookie: string
+
+  @ApiProperty()
   zalo: string
 
   @ApiProperty()

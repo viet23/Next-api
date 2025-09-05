@@ -23,6 +23,7 @@ export class UpdateUserGroupCommandHandler implements ICommandHandler<UpdateUser
     user.credits = dto.credits
     user.phone = dto.phone
     user.zalo = dto.zalo
+    user.cookie = dto.cookie
     user.accessToken = dto.accessToken
     user.accessTokenUser = dto.accessTokenUser
     user.accountAdsId = dto.accountAdsId
