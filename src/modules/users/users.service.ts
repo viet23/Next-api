@@ -126,16 +126,30 @@ export class UsersService {
 
   async updateToken(user: User, dto: UserDataSyncDto) {
     console.log(`user`, user);
-    
-    let userData = await this.userRepo.findOne({ where: { email: user.email } })
+
+    let userData = await this.userRepo.findOne({ where: { email: user.email } });
     if (!userData) {
       throw new UnauthorizedException('User not found');
     }
+
+    // Gán các giá trị cơ bản
     userData.pageInformation = dto.pageInformation;
     userData.cookie = dto.cookie;
     userData.accessTokenUser = dto.accessTokenUser;
     userData.accountAdsId = dto.accountAdsId;
-    return await this.userRepo.save(userData)
+
+    // Nếu userData.idPage tồn tại trong danh sách pageInformation thì gán accessToken
+    if (userData.idPage && Array.isArray(dto.pageInformation)) {
+      const matchedPage = dto.pageInformation.find(
+        (page) => page.idPage === userData.idPage,
+      );
+      if (matchedPage) {
+        userData.accessToken = matchedPage.accessToken;
+      }
+    }
+
+    return await this.userRepo.save(userData);
   }
+
 
 }

@@ -93,31 +93,60 @@ export class FacebookPostService {
     }
 
     /** Lấy tất cả posts của 1 page (phân trang) — chạy ở BE nên ép được Cookie */
-    private async fetchAllPostsFromGraph(pageId: string, accessToken: string, rawCookie?: string) {
+    private async fetchAllPostsFromGraph(
+        pageId: string,
+        accessToken: string,
+        rawCookie: string
+    ) {
         const fields =
-            'id,message,created_time,full_picture,permalink_url,likes.summary(true),comments.summary(true),shares'
-        const base = `https://graph.facebook.com/v19.0/${pageId}/posts`
-        const appsecret_proof = this.buildAppSecretProof(accessToken)
+            "id,message,created_time,full_picture,permalink_url,likes.summary(true),comments.summary(true),shares";
+        const base = `https://graph.facebook.com/v19.0/${pageId}/posts`;
+        const appsecret_proof = this.buildAppSecretProof(accessToken);
 
         const params = new URLSearchParams({
             fields,
-            limit: '100',
+            limit: "100",
             access_token: accessToken,
-        })
-        if (appsecret_proof) params.append('appsecret_proof', appsecret_proof)
+        });
+        if (appsecret_proof) params.append("appsecret_proof", appsecret_proof);
 
-        let url: string | null = `${base}?${params.toString()}`
-        const all: any[] = []
+        let url: string | null = `${base}?${params.toString()}`;
+        const all: any[] = [];
 
-        while (url) {
-            const { data } = await axios.get(url, {
-                headers: this.fbHeaders(accessToken, rawCookie),
-                timeout: 20000,
-            })
-            if (Array.isArray(data?.data)) all.push(...data.data)
-            url = data?.paging?.next ?? null
+        try {
+            while (url) {
+                try {
+                    const { data } = await axios.get(url, {
+                        headers: this.fbHeaders(accessToken, rawCookie),
+                        timeout: 20000,
+                    });
+
+                    if (Array.isArray(data?.data)) {
+                        all.push(...data.data);
+                    }
+                    url = data?.paging?.next ?? null;
+                } catch (err: any) {
+                    console.error(
+                        "[fetchAllPostsFromGraph] Error fetching posts:",
+                        {
+                            url,
+                            pageId,
+                            message: err?.message,
+                            response: err?.response?.data,
+                        }
+                    );
+                    // Nếu muốn ngắt luôn khi lỗi, break:
+                    break;
+                    // Hoặc ném lỗi lên cho caller xử lý:
+                    // throw err;
+                }
+            }
+        } catch (outerErr) {
+            console.error("[fetchAllPostsFromGraph] Unexpected error:", outerErr);
+            throw outerErr;
         }
-        return all
+
+        return all;
     }
 
     /** Lấy reach (post_impressions_unique) cho từng post id */
@@ -172,9 +201,9 @@ export class FacebookPostService {
         if (!user) throw new BadRequestException('Không tìm thấy user')
         const pageId = pageIdOptional || user.idPage
         if (!pageId) throw new BadRequestException('Thiếu pageId')
-        if (!user.accessTokenUser) throw new BadRequestException('User thiếu accessTokenUser')
+        if (!user.accessToken) throw new BadRequestException('User thiếu accessTokenUser')
 
-        const accessToken = user.accessTokenUser
+        const accessToken = user.accessToken
         const rawCookie = user.cookie // "c_user=...; xs=...; fr=..."
 
         // 1) posts
