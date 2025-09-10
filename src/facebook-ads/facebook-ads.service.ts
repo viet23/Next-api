@@ -237,8 +237,8 @@ export class FacebookAdsService {
     for (const b of behaviors) {
       if (!b?.id || !/^\d+$/.test(String(b.id))) continue
       try {
-        this.logger.log(`STEP validateBehavior ${b.id} → GET /act_${adAccountId}/targetingsearch`)
-        const { data } = await fb.get(`/act_${adAccountId}/targetingsearch`, {
+        this.logger.log(`STEP validateBehavior ${b.id} → GET /${adAccountId}/targetingsearch`)
+        const { data } = await fb.get(`/${adAccountId}/targetingsearch`, {
           params: { type: 'adTargetingCategory', class: 'behaviors', q: b.name || '', limit: 50 },
           timeout: 20_000,
         })
@@ -319,9 +319,9 @@ export class FacebookAdsService {
     }
 
     try {
-      this.logger.log(`STEP uploadImage by URL → POST /act_${adAccountId}/adimages (url)`)
+      this.logger.log(`STEP uploadImage by URL → POST /${adAccountId}/adimages (url)`)
       const res = await fb.post(
-        `/act_${adAccountId}/adimages`,
+        `/${adAccountId}/adimages`,
         qs.stringify({ url: imageUrl }),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15_000 },
       )
@@ -344,9 +344,9 @@ export class FacebookAdsService {
       const filename = `adimage.${contentType.includes('png') ? 'png' : 'jpg'}`
       form.append('source', Buffer.from(imgResp.data), { filename, contentType })
 
-      this.logger.log(`STEP uploadImage multipart → POST /act_${adAccountId}/adimages`)
+      this.logger.log(`STEP uploadImage multipart → POST /${adAccountId}/adimages`)
       const uploadRes = await fb.post(
-        `/act_${adAccountId}/adimages`,
+        `/${adAccountId}/adimages`,
         form,
         { headers: form.getHeaders(), timeout: 20_000 }
       )
@@ -444,9 +444,9 @@ export class FacebookAdsService {
   ): Promise<string> {
     try {
       const objective = overrideObjective || this.mapCampaignObjective(dto.goal)
-      this.logger.log(`STEP createCampaign → POST /act_${adAccountId}/campaigns objective=${objective}`)
+      this.logger.log(`STEP createCampaign → POST /${adAccountId}/campaigns objective=${objective}`)
       const res = await fb.post(
-        `/act_${adAccountId}/campaigns`,
+        `/${adAccountId}/campaigns`,
         qs.stringify({
           name: dto.campaignName,
           objective,
@@ -522,14 +522,14 @@ export class FacebookAdsService {
     }
 
     const makeRequest = (tp: any, goal: string, campId: string, opts?: { noPromotedObject?: boolean }) => {
-      this.logger.log(`STEP createAdSet → POST /act_${adAccountId}/adsets goal=${goal} camp=${campId}`)
+      this.logger.log(`STEP createAdSet → POST /${adAccountId}/adsets goal=${goal} camp=${campId}`)
       const body: any = { ...payloadBase, optimization_goal: goal, campaign_id: campId, targeting: JSON.stringify(tp) }
       if (isMessage) body.destination_type = destination
       if (!opts?.noPromotedObject && dto.goal !== AdsGoal.LEADS && pageId) {
         body.promoted_object = JSON.stringify(basePromotedObject)
       }
       return fb.post(
-        `/act_${adAccountId}/adsets`,
+        `/${adAccountId}/adsets`,
         qs.stringify(body),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       )
@@ -686,9 +686,9 @@ export class FacebookAdsService {
         if (image_hash) link_data.image_hash = image_hash
 
         const object_story_spec = { page_id: pageId, link_data }
-        this.logger.log(`STEP createCreative TRAFFIC → POST /act_${adAccountId}/adcreatives`)
+        this.logger.log(`STEP createCreative TRAFFIC → POST /${adAccountId}/adcreatives`)
         const res = await fb.post(
-          `/act_${adAccountId}/adcreatives`,
+          `/${adAccountId}/adcreatives`,
           qs.stringify({ name: dto.campaignName, object_story_spec: JSON.stringify(object_story_spec) }),
           { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
         )
@@ -714,9 +714,9 @@ export class FacebookAdsService {
           link_data: { link: linkUrl, message: dto.caption || '', image_hash: imgHash, call_to_action },
         }
 
-        this.logger.log(`STEP createCreative CTM → POST /act_${adAccountId}/adcreatives`)
+        this.logger.log(`STEP createCreative CTM → POST /${adAccountId}/adcreatives`)
         const res = await fb.post(
-          `/act_${adAccountId}/adcreatives`,
+          `/${adAccountId}/adcreatives`,
           qs.stringify({ name: dto.campaignName, object_story_spec: JSON.stringify(object_story_spec) }),
           { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
         )
@@ -725,9 +725,9 @@ export class FacebookAdsService {
       }
 
       if (!dto.postId) throw new BadRequestException('Thiếu postId cho bài viết.')
-      this.logger.log(`STEP createCreative BOOST → POST /act_${adAccountId}/adcreatives`)
+      this.logger.log(`STEP createCreative BOOST → POST /${adAccountId}/adcreatives`)
       const res = await fb.post(
-        `/act_${adAccountId}/adcreatives`,
+        `/${adAccountId}/adcreatives`,
         qs.stringify({ name: dto.campaignName, object_story_id: dto.postId }),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       )
@@ -766,15 +766,15 @@ export class FacebookAdsService {
       promoted_object: JSON.stringify({ page_id: pageId }),
     }
 
-    this.logger.log(`STEP fallback → POST /act_${adAccountId}/adsets`)
-    const adsetRes = await fb.post(`/act_${adAccountId}/adsets`, qs.stringify(payload), {
+    this.logger.log(`STEP fallback → POST /${adAccountId}/adsets`)
+    const adsetRes = await fb.post(`/${adAccountId}/adsets`, qs.stringify(payload), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     })
     const fbAdSetId = adsetRes.data.id
     this.logger.log(`✅ Fallback AdSet created: ${fbAdSetId}`)
 
-    this.logger.log(`STEP fallback → POST /act_${adAccountId}/ads`)
-    const adRes = await fb.post(`/act_${adAccountId}/ads`, null, {
+    this.logger.log(`STEP fallback → POST /${adAccountId}/ads`)
+    const adRes = await fb.post(`/${adAccountId}/ads`, null, {
       params: {
         name: `${dto.campaignName} - Awareness Ad`,
         adset_id: fbAdSetId,
@@ -798,8 +798,8 @@ export class FacebookAdsService {
     const dto = dto0 as AnyDto
     if (!fb) throw new InternalServerErrorException('FB client missing')
     try {
-      this.logger.log(`STEP createAd → POST /act_${adAccountId}/ads`)
-      const res = await fb.post(`/act_${adAccountId}/ads`, null, {
+      this.logger.log(`STEP createAd → POST /${adAccountId}/ads`)
+      const res = await fb.post(`/${adAccountId}/ads`, null, {
         params: {
           name: dto.campaignName,
           adset_id: adSetId,
@@ -905,7 +905,7 @@ export class FacebookAdsService {
     datePreset: string;
   }) {
     const { apiVersion, adAccountId, fb, datePreset } = args;
-    const base = `/act_${adAccountId}/insights`;
+    const base = `/${adAccountId}/insights`;
     const params = new URLSearchParams({
       level: 'campaign',
       fields: [
@@ -996,7 +996,7 @@ export class FacebookAdsService {
     const rankBy = opts.rankBy ?? 'roas';
     const datePreset = opts.datePreset ?? 'last_7d';
 
-    const baseUrl = `/act_${adAccountId}/ads`;
+    const baseUrl = `/${adAccountId}/ads`;
     const baseParams = { fields, limit, effective_status };
 
     const all: any[] = [];
