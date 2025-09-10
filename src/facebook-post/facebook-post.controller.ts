@@ -11,7 +11,7 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags } from '@nestjs/swagger';
 import { FacebookPostService } from './facebook-post.service';
 import { CreateFacebookPostDto } from './dto/create-facebook-post.dto';
 import { UpdateFacebookPostDto } from './dto/update-facebook-post.dto';
@@ -26,6 +26,7 @@ import { User } from '@models/user.entity';
 export class FacebookPostController {
   constructor(private readonly service: FacebookPostService) {}
 
+  // ===== CRUD =====
   @Post()
   create(@Body() dto: CreateFacebookPostDto) {
     return this.service.create(dto);
@@ -34,6 +35,35 @@ export class FacebookPostController {
   @Get()
   findAll(@Query() query: QueryFacebookPostDto) {
     return this.service.findAll(query);
+  }
+
+  // ===== NEW: Gọi Graph lấy posts + reach (giữ y hệt style đang chạy tốt) =====
+  @Get('graph')
+  @UseGuards(JwtAuthGuard)
+  async fetchFromGraph(@Authen() user: User) {
+    console.log('fetchFromGraph user:', user);
+    if (!user?.email) {
+      throw new BadRequestException('Không xác định được email người dùng từ token.');
+    }
+    return this.service.fetchPagePostsForUser(user);
+  }
+
+  // ===== NEW: Gọi Graph lấy insights page_views_total (14 ngày mặc định) =====
+  @Get('insights/page-views')
+  @UseGuards(JwtAuthGuard)
+  async fetchPageViews(@Authen() user: User, @Query('days') days?: string) {
+    console.log('fetchPageViews user:', user);
+    if (!user?.email) {
+      throw new BadRequestException('Không xác định được email người dùng từ token.');
+    }
+    const d = days ? Math.max(1, parseInt(days, 10)) : 14;
+    return this.service.fetchPageViewsForUser(user, d);
+  }
+
+  // ===== Khôi phục (đặt trước :id để tránh hiểu nhầm route) =====
+  @Patch(':id/restore')
+  restore(@Param('id') id: string) {
+    return this.service.restore(id);
   }
 
   @Get(':id')
@@ -49,22 +79,5 @@ export class FacebookPostController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.service.remove(id);
-  }
-
-  @Patch(':id/restore')
-  restore(@Param('id') id: string) {
-    return this.service.restore(id);
-  }
-
-  // ===== NEW: gọi Graph ở BE, yêu cầu JWT; service sẽ tự xử lý Cookie/Bearer/appsecret_proof =====
-  @Get('graph')
-  @UseGuards(JwtAuthGuard)
-  async fetchFromGraph( @Authen() user: User,) {
-    console.log(`pageId hâhahahaahahah`, user);
-    
-    if (!user?.email) {
-      throw new BadRequestException('Không xác định được email người dùng từ token.');
-    }
-    return this.service.fetchPagePostsForUser(user);
   }
 }

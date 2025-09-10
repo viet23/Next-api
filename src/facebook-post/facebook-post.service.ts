@@ -10,6 +10,7 @@ import { UpdateFacebookPostDto } from './dto/update-facebook-post.dto'
 import { FacebookPost } from '@models/facebook_post.entity'
 import { QueryFacebookPostDto } from './dto/query-facebook-post.dto'
 import { User } from '@models/user.entity'   // ⬅️ thêm
+import { log } from 'node:console'
 
 @Injectable()
 export class FacebookPostService {
@@ -23,7 +24,7 @@ export class FacebookPostService {
         private readonly userRepo: Repository<User> // ⬅️ thêm
     ) { }
 
-    // ================== GIỮ NGUYÊN CÁC HÀM CRUD CỦ SẴN ==================
+    // ================== GIỮ NGUYÊN CÁC HÀM CRUD CŨ SẴN ==================
     async create(dto: CreateFacebookPostDto) {
         const entity = this.repo.create(dto)
         return this.repo.save(entity)
@@ -135,10 +136,7 @@ export class FacebookPostService {
                             response: err?.response?.data,
                         }
                     );
-                    // Nếu muốn ngắt luôn khi lỗi, break:
-                    break;
-                    // Hoặc ném lỗi lên cho caller xử lý:
-                    // throw err;
+                    break; // hoặc throw err;
                 }
             }
         } catch (outerErr) {
@@ -154,7 +152,6 @@ export class FacebookPostService {
         const appsecret_proof = this.buildAppSecretProof(accessToken)
         const out = new Map<string, number>()
 
-        // hạn chế đồng thời 5
         const queue = [...postIds]
         const CONCURRENCY = 5
         const worker = async () => {
@@ -194,9 +191,7 @@ export class FacebookPostService {
         console.log('user:', userEmail, 'pageIdOptional:', pageIdOptional);
         const user = await this.userRepo.findOne({ where: { email: userEmail } })
 
-
         console.log('user found:', !!user, user ? { id: user.id, email: user.email, idPage: user.idPage } : null);
-
 
         if (!user) throw new BadRequestException('Không tìm thấy user')
         const pageId = pageIdOptional || user.idPage
@@ -245,5 +240,126 @@ export class FacebookPostService {
                 monthlyCount,
             },
         }
+    }
+
+    // ================== NEW: INSIGHTS PAGE VIEWS (14 ngày) ==================
+
+    /** NEW: core call insights page_views_total theo ngày */
+    private async fetchPageViewsDaily(
+        pageId: string,
+        accessToken: string,
+        rawCookie?: string,
+        days = 14
+    ): Promise<Array<{ name: string; views: number }>> {
+        if (!pageId || !accessToken) throw new BadRequestException('Missing pageId/accessToken');
+
+        const metric = 'page_views_total';
+        const appsecret_proof = this.buildAppSecretProof(accessToken);
+        const headers = this.fbHeaders(accessToken, rawCookie);
+        const baseUrl = `https://graph.facebook.com/v19.0/${pageId}/insights`;
+
+        // helper: format [{ name:'dd/MM', views }]
+        const formatValues = (values: any[]) =>
+            (values || []).map((item: any) => {
+                const d = new Date(item?.end_time);
+                // FE dùng local time → giữ getDate/getMonth
+                const day = String(d.getDate()).padStart(2, '0');
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                return { name: `${day}/${month}`, views: item?.value ?? 0 };
+            });
+
+        // 1) Ưu tiên date_preset nếu days ∈ {7,14,28} (ổn định hơn)
+        const presetMap: Record<number, 'last_7d' | 'last_14d' | 'last_28d'> = {
+            7: 'last_7d',
+            14: 'last_14d',
+            28: 'last_28d',
+        };
+
+        const tryPresetFirst = presetMap[days] !== undefined;
+
+        try {
+            if (tryPresetFirst) {
+                const paramsPreset: Record<string, string> = {
+                    metric,
+                    period: 'day',
+                    date_preset: presetMap[days],
+                    access_token: accessToken,
+                };
+                if (appsecret_proof) paramsPreset.appsecret_proof = appsecret_proof;
+
+                const { data } = await axios.get(baseUrl, { params: paramsPreset, headers, timeout: 20000 });
+                console.log('[fetchPageViewsDaily] preset data:', data);
+                
+                const rawValues = data?.data?.find((it: any) => it?.name === metric)?.values ?? [];
+                if (Array.isArray(rawValues) && rawValues.length) {
+                    return formatValues(rawValues);
+                }
+                // rơi xuống since/until nếu preset không có dữ liệu
+                this.logger.warn('[fetchPageViewsDaily] preset empty, fallback to since/until', { days });
+            }
+
+            // 2) Fallback: since/until (chuẩn hoá thật sự “end-of-yesterday UTC”)
+            const nowSec = Math.floor(Date.now() / 1000);
+            const todayUtc = new Date();
+            todayUtc.setUTCHours(0, 0, 0, 0);
+            const endOfYesterdayUtc = new Date(todayUtc.getTime() - 1); // 23:59:59.999 hôm qua
+            const endOfYesterdaySec = Math.min(Math.floor(endOfYesterdayUtc.getTime() / 1000), nowSec);
+
+            const sinceDateUtc = new Date((endOfYesterdaySec - (days - 1) * 86400) * 1000);
+            sinceDateUtc.setUTCHours(0, 0, 0, 0);
+            const sinceSec = Math.floor(sinceDateUtc.getTime() / 1000);
+            const untilSec = endOfYesterdaySec;
+
+            this.logger.log('[fetchPageViewsDaily] time window', {
+                sinceSec, untilSec,
+                sinceISO: new Date(sinceSec * 1000).toISOString(),
+                untilISO: new Date(untilSec * 1000).toISOString(),
+                days,
+            });
+
+            const paramsRange: Record<string, string> = {
+                metric,
+                period: 'day',
+                since: String(sinceSec),
+                until: String(untilSec),
+                access_token: accessToken,
+            };
+            if (appsecret_proof) paramsRange.appsecret_proof = appsecret_proof;
+
+            const { data: dataRange } = await axios.get(baseUrl, { params: paramsRange, headers, timeout: 20000 });
+            const rawValues2 = dataRange?.data?.find((it: any) => it?.name === metric)?.values ?? [];
+            return formatValues(rawValues2);
+        } catch (err: any) {
+            this.logger.error('[fetchPageViewsDaily] Error', {
+                pageId,
+                message: err?.message,
+                response: err?.response?.data,
+            } as any);
+            throw new BadRequestException(err?.response?.data?.error?.message || 'Facebook Insights error');
+        }
+    }
+
+
+
+    /**
+     * NEW: Wrapper theo user – trả mảng { name: 'dd/MM', views: number } cho FE vẽ chart
+     * - Nếu không truyền pageId: lấy từ user.idPage
+     * - Lấy token/cookie từ DB theo user.email
+     */
+    async fetchPageViewsForUser(userdto: User, days = 14) {
+        const userEmail = userdto.email
+        const pageIdOptional = userdto.idPage
+        const user = await this.userRepo.findOne({ where: { email: userEmail } })
+        if (!user) throw new BadRequestException('Không tìm thấy user')
+
+        const pageId = pageIdOptional || user.idPage
+        if (!pageId) throw new BadRequestException('Thiếu pageId')
+        if (!user.accessToken) throw new BadRequestException('User thiếu accessTokenUser')
+
+        const accessToken = user.accessToken
+        const rawCookie = user.cookie
+
+        const data = await this.fetchPageViewsDaily(pageId, accessToken, rawCookie, days)
+        return { ok: true, data } // FE setDataChart(json.data)
     }
 }
