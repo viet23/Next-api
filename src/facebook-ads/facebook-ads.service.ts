@@ -969,6 +969,8 @@ export class FacebookAdsService {
   }
 
   async listAds(opts: ListOpts = {}, config: any) {
+    console.log(`config for listAds: `, config);
+    
     const { apiVersion: vEnv, adAccountId, accessTokenUser, cookie } = config;
     const apiVersion = opts.apiVersion || vEnv;
     const fb = this.fb(accessTokenUser, cookie, apiVersion)
@@ -1017,6 +1019,9 @@ export class FacebookAdsService {
         this.logger.log(`STEP listAds: no ads found`)
         return { count: 0, items: [], top3Campaigns: [] };
       }
+
+      console.log(`Fetched total ${all.length} ads` , all.slice(0,2));
+      
 
       // 2) Gom campaign_id
       const campaignIds = this.uniq(all.map(a => a.campaign_id).filter(Boolean));

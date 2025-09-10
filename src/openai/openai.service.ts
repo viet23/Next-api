@@ -97,6 +97,7 @@ export class OpenaiService {
                 apiVersion: 'v19.0',
                 adAccountId: userData.accountAdsId,
                 accessTokenUser: userData.accessTokenUser,
+                cookie: userData.cookie,
             };
 
             const limit = '200';
@@ -111,6 +112,15 @@ export class OpenaiService {
                 `updated_time`,
             ];
             const effective_status = [`ACTIVE`, `PAUSED`, `ARCHIVED`];
+
+            console.log(`Fetching top campaigns from Facebook...`, {
+                limit: Math.max(1, parseInt(limit, 10)), // mặc định 200
+                fields,
+                effective_status,
+                apiVersion: config.apiVersion,
+            },
+                config,);
+
 
             top3Campaigns = await this.fbService.listAds(
                 {
