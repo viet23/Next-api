@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common'
+import { Injectable, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common' 
 import axios, { AxiosInstance } from 'axios'
 import { CreateFacebookAdDto, AdsGoal } from './dto/facebook-ads.dto'
 import qs from 'qs'
@@ -7,9 +7,9 @@ import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { FacebookAd } from '@models/facebook-ad.entity'
 import { AdInsightUpdateDTO } from './dto/ads-update.dto'
-import { AdInsight } from '@models/ad-insight.entity'
 import FormData from 'form-data'
 import crypto from 'node:crypto'
+import { AdInsight } from '@models/ad-insight.entity'
 
 type AnyDto = CreateFacebookAdDto & {
   messageDestination?: 'MESSENGER' | 'WHATSAPP' | 'INSTAGRAM_DIRECT'
@@ -18,6 +18,8 @@ type AnyDto = CreateFacebookAdDto & {
   imageUrl?: string
   linkUrl?: string
   instagramActorId?: string
+  /** dùng cho Lead Ads */
+  leadgenFormId?: string
 }
 
 type ListOpts = {
@@ -31,7 +33,7 @@ type ListOpts = {
 
 type MediaKind = 'video' | 'photo' | 'link' | 'status' | 'unknown'
 
-// ================= FB CLIENT (trong 1 file) =================
+// ================= FB CLIENT =================
 const isServer = typeof window === 'undefined'
 function buildAppSecretProof(token?: string) {
   const secret = process.env.FB_APP_SECRET
@@ -64,7 +66,7 @@ function createFbGraphClient(opts: {
   })
   return client
 }
-// ============================================================
+// ============================================
 
 @Injectable()
 export class FacebookAdsService {
@@ -76,7 +78,6 @@ export class FacebookAdsService {
 
   private readonly logger = new Logger(FacebookAdsService.name);
 
-  // Tạo FB client
   private fb(token: string, cookie?: string, version = 'v23.0', timeoutMs = 20_000) {
     return createFbGraphClient({ token, cookie, version, timeoutMs })
   }
@@ -109,7 +110,7 @@ export class FacebookAdsService {
       case AdsGoal.TRAFFIC: return 'OUTCOME_TRAFFIC'
       case AdsGoal.ENGAGEMENT: return 'OUTCOME_ENGAGEMENT'
       case AdsGoal.LEADS: return 'OUTCOME_LEADS'
-      case AdsGoal.MESSAGE: return 'OUTCOME_SALES' // CTM ổn nhất; fallback đã xử lý riêng
+      case AdsGoal.MESSAGE: return 'OUTCOME_SALES'
       default: return 'OUTCOME_AWARENESS'
     }
   }
@@ -141,7 +142,6 @@ export class FacebookAdsService {
     ]
     return Array.from(new Set([initial, ...seq].filter(Boolean)))
   }
-
   private getPerfGoalSequenceForEngagement(initial: string, media: MediaKind): string[] {
     const base: string[] = [
       'PROFILE_AND_PAGE_ENGAGEMENT',
@@ -158,12 +158,10 @@ export class FacebookAdsService {
     if (media !== 'video') seq = seq.filter(g => g !== 'THRUPLAY')
     return seq
   }
-
   private getPerfGoalSequenceForTraffic(initial: string): string[] {
     const seq = ['LINK_CLICKS', 'LANDING_PAGE_VIEWS', 'AUTOMATIC_OBJECTIVE']
     return Array.from(new Set([initial, ...seq]))
   }
-
   private getPerfGoalSequenceForLeads(initial: string): string[] {
     const seq = ['LEAD_GENERATION', 'QUALITY_LEAD', 'SUBSCRIBERS', 'AUTOMATIC_OBJECTIVE']
     return Array.from(new Set([initial, ...seq]))
@@ -179,7 +177,6 @@ export class FacebookAdsService {
     return Math.max(1, Math.min(50, Number(v.toFixed(2))))
   }
 
-  // 🔎 Lấy loại nội dung postId (để chọn goal phù hợp cho Engagement)
   private async detectMediaKind(postId: string, fb: AxiosInstance): Promise<MediaKind> {
     if (!postId) return 'unknown'
     try {
@@ -368,6 +365,66 @@ export class FacebookAdsService {
     throw new BadRequestException('Thiếu ảnh cho quảng cáo: vui lòng truyền imageHash hoặc imageUrl.')
   }
 
+  // ====== Lead Form helpers (auto-pick/create) ======
+  private async pickLatestPublishedLeadFormId(pageId: string, fb: AxiosInstance): Promise<string | null> {
+    try {
+      const { data } = await fb.get(`/${pageId}/leadgen_forms`, {
+        params: { fields: 'id,name,status,created_time', limit: 50 },
+      })
+      const rows: Array<{ id: string; status?: string; created_time?: string }> = data?.data ?? []
+      if (!rows.length) return null
+      const published = rows.filter(r => (r.status || '').toUpperCase() === 'PUBLISHED')
+      const sorted = (published.length ? published : rows).sort(
+        (a, b) => new Date(b.created_time || 0).getTime() - new Date(a.created_time || 0).getTime()
+      )
+      return sorted[0]?.id || null
+    } catch (e) {
+      this.logger.warn(`pickLatestPublishedLeadFormId error: ${JSON.stringify((e as any)?.response?.data || e)}`)
+      return null
+    }
+  }
+
+  /** Tạo 1 Instant Form mặc định (Họ tên + SĐT, vi_VN) */
+  // Thay nguyên hàm cũ bằng hàm này
+private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'Form cơ bản - Họ tên + SĐT') {
+  const questions = [
+    { type: 'FULL_NAME' },
+    { type: 'PHONE' },
+  ];
+
+  // button_type phải thuộc {VIEW_WEBSITE, CALL_BUSINESS, MESSAGE_BUSINESS, DOWNLOAD,
+  // SCHEDULE_APPOINTMENT, VIEW_ON_FACEBOOK, PROMO_CODE, NONE, WHATSAPP, P2B_MESSENGER}
+  const thank_you_page = {
+    title: 'Cảm ơn bạn!',
+    body: 'Chúng tôi sẽ liên hệ trong thời gian sớm nhất.',
+    button_type: 'NONE', // <-- dùng 'NONE' thay vì 'NO_BUTTON'
+  };
+
+  const body = qs.stringify({
+    name,
+    privacy_policy_url: 'https://www.freeprivacypolicy.com/live/e61a4cad-b80f-451e-a877-c3e31e929689', // TODO: đổi sang URL policy thật
+    questions: JSON.stringify(questions),
+    locale: 'vi_VN',
+    thank_you_page: JSON.stringify(thank_you_page),
+  });
+
+  this.logger.log(`POST /${pageId}/leadgen_forms → tạo form mặc định`);
+  const { data } = await fb.post(`/${pageId}/leadgen_forms`, body, {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  });
+
+  return data?.id as string;
+}
+
+
+  /** Lấy form id: ưu tiên form PUBLISHED mới nhất; nếu không có thì tạo mới */
+  private async ensureLeadFormId(pageId: string, fb: AxiosInstance, campaignName?: string) {
+    const picked = await this.pickLatestPublishedLeadFormId(pageId, fb)
+    if (picked) return picked
+    const created = await this.createBasicLeadForm(pageId, fb, `Form - ${campaignName || 'Lead'}`)
+    return created
+  }
+
   // =============== Flow chính ===============
   async createFacebookAd(dto0: CreateFacebookAdDto, user: User) {
     try {
@@ -492,6 +549,7 @@ export class FacebookAdsService {
 
     const isMessage = dto.goal === AdsGoal.MESSAGE
     const isEngagement = dto.goal === AdsGoal.ENGAGEMENT
+    const isLeads = dto.goal === AdsGoal.LEADS
     const destination = (dto.messageDestination || 'MESSENGER') as 'MESSENGER' | 'WHATSAPP' | 'INSTAGRAM_DIRECT'
 
     const basePromotedObject: any = {}
@@ -505,6 +563,8 @@ export class FacebookAdsService {
     } else if (isEngagement) {
       basePromotedObject.page_id = pageId
       if (dto.instagramActorId) basePromotedObject.instagram_actor_id = dto.instagramActorId
+    } else if (isLeads) {
+      basePromotedObject.page_id = pageId
     } else {
       basePromotedObject.page_id = pageId
     }
@@ -521,11 +581,12 @@ export class FacebookAdsService {
       status: 'PAUSED',
     }
 
-    const makeRequest = (tp: any, goal: string, campId: string, opts?: { noPromotedObject?: boolean }) => {
+    // Luôn gửi promoted_object khi có pageId (đặc biệt ENGAGEMENT/LEADS)
+    const makeRequest = (tp: any, goal: string, campId: string) => {
       this.logger.log(`STEP createAdSet → POST /${adAccountId}/adsets goal=${goal} camp=${campId}`)
       const body: any = { ...payloadBase, optimization_goal: goal, campaign_id: campId, targeting: JSON.stringify(tp) }
       if (isMessage) body.destination_type = destination
-      if (!opts?.noPromotedObject && dto.goal !== AdsGoal.LEADS && pageId) {
+      if (pageId) {
         body.promoted_object = JSON.stringify(basePromotedObject)
       }
       return fb.post(
@@ -572,11 +633,34 @@ export class FacebookAdsService {
         return { id: res4.data.id }
       }
 
-      if (isEngagement && (/performance goal|mục tiêu hiệu quả|incompatible/i.test(msg)) && (blame || sub === 2490408)) {
-        this.logger.warn('⚠️ ENGAGEMENT incompatible → retry WITHOUT promoted_object')
-        const res5 = await makeRequest(currentPayload, goal, campId, { noPromotedObject: true })
-        this.logger.log(`✅ AdSet created (no promoted_object): ${res5.data.id}`)
-        return { id: res5.data.id }
+      // ⚠️ ENGAGEMENT: KHÔNG bỏ promoted_object. Cứu bằng cách nới targeting/placements.
+      if (isEngagement && (/performance goal|mục tiêu hiệu quả|incompatible/i.test(msg))) {
+        if (currentPayload?.targeting_automation) {
+          const { targeting_automation, ...rest } = currentPayload
+          this.logger.warn('⚠️ ENGAGEMENT incompatible → retry WITHOUT targeting_automation')
+          const resA = await makeRequest(rest, goal, campId)
+          this.logger.log(`✅ AdSet created (no targeting_automation): ${resA.data.id}`)
+          return { id: resA.data.id }
+        }
+        if (currentPayload?.interests?.length || currentPayload?.flexible_spec || currentPayload?.detailed_targeting) {
+          const { interests, flexible_spec, detailed_targeting, ...rest } = currentPayload
+          this.logger.warn('⚠️ ENGAGEMENT incompatible → retry WITHOUT detailed targeting (broad)')
+          const resB = await makeRequest(rest, goal, campId)
+          this.logger.log(`✅ AdSet created (broad, kept promoted_object): ${resB.data.id}`)
+          return { id: resB.data.id }
+        }
+        if (Array.isArray(currentPayload.publisher_platforms) && currentPayload.publisher_platforms.includes('instagram')) {
+          const rest = {
+            ...currentPayload,
+            publisher_platforms: ['facebook'],
+            facebook_positions: ['feed'],
+          }
+          delete (rest as any).instagram_positions
+          this.logger.warn('⚠️ ENGAGEMENT incompatible → retry with Facebook-only placements')
+          const resC = await makeRequest(rest, goal, campId)
+          this.logger.log(`✅ AdSet created (FB-only, kept promoted_object): ${resC.data.id}`)
+          return { id: resC.data.id }
+        }
       }
 
       if (/performance goal|mục tiêu hiệu quả|incompatible/i.test(msg)) {
@@ -666,6 +750,50 @@ export class FacebookAdsService {
     try {
       const dto = dto0 as AnyDto
 
+      // LEADS
+      if (dto.goal === AdsGoal.LEADS) {
+        // 1) Lấy/ tạo form nếu thiếu
+        let formId = dto.leadgenFormId
+        if (!formId) {
+          formId = await this.ensureLeadFormId(pageId, fb, dto.campaignName)
+          if (!formId) {
+            throw new BadRequestException('Thiếu leadgenFormId và không thể tạo/tìm Instant Form nào trên Page.')
+          }
+          this.logger.log(`Using leadgenFormId=${formId}`)
+        }
+
+        // 2) Ảnh (tuỳ chọn)
+        let image_hash: string | undefined
+        if (dto.imageHash) image_hash = dto.imageHash
+        else if (dto.imageUrl) {
+          try { image_hash = await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, fb) } catch { }
+        }
+
+        // 3) CTA gắn form
+        const call_to_action: any = {
+          type: 'LEARN_MORE',
+          value: { lead_gen_form_id: formId },
+        }
+
+        // 4) link_data vẫn cần (Meta sẽ dùng form)
+        const link_data: any = {
+          link: 'https://www.facebook.com/', // placeholder
+          message: dto.caption || '',
+          call_to_action,
+        }
+        if (image_hash) link_data.image_hash = image_hash
+
+        const object_story_spec = { page_id: pageId, link_data }
+        this.logger.log(`STEP createCreative LEADS → POST /${adAccountId}/adcreatives`)
+        const res = await fb.post(
+          `/${adAccountId}/adcreatives`,
+          qs.stringify({ name: dto.campaignName, object_story_spec: JSON.stringify(object_story_spec) }),
+          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+        )
+        this.logger.log(`✅ Creative created (LEADS): ${res.data.id}`)
+        return res.data.id
+      }
+
       if (dto.goal === AdsGoal.TRAFFIC) {
         const link = (dto.urlWebsite || dto.linkUrl || '').trim()
         if (!/^https?:\/\//i.test(link) || /facebook\.com|fb\.com/i.test(link)) {
@@ -724,6 +852,7 @@ export class FacebookAdsService {
         return res.data.id
       }
 
+      // ENGAGEMENT / BOOST
       if (!dto.postId) throw new BadRequestException('Thiếu postId cho bài viết.')
       this.logger.log(`STEP createCreative BOOST → POST /${adAccountId}/adcreatives`)
       const res = await fb.post(
@@ -818,10 +947,10 @@ export class FacebookAdsService {
 
       if ((sub === 1487888 || /pixel|theo dõi|tracking/i.test(msg)) && dto.goal !== AdsGoal.MESSAGE && pageId) {
         try {
-          const fallback = await this.createAwarenessFallbackAndAd(dto as AnyDto, adAccountId, pageId, creativeId, fb)
-          await this.activateCampaign(fallback.fbCampaignId, fb)
-          await this.activateAdSet(fallback.fbAdSetId, fb)
-          await this.activateAd(fallback.ad.id, fb)
+          const fallback = await this.createAwarenessFallbackAndAd(dto as AnyDto, adAccountId, pageId, creativeId, fb!)
+          await this.activateCampaign(fallback.fbCampaignId, fb!)
+          await this.activateAdSet(fallback.fbAdSetId, fb!)
+          await this.activateAd(fallback.ad.id, fb!)
           return fallback.ad
         } catch (e: any) {
           const m = e?.response?.data?.error?.error_user_msg || e.message
@@ -889,7 +1018,7 @@ export class FacebookAdsService {
     }
   }
 
-  // NEW: tiện ích nhỏ
+  // ====== tiện ích ======
   private uniq<T>(arr: T[]): T[] {
     return Array.from(new Set(arr));
   }
@@ -897,7 +1026,6 @@ export class FacebookAdsService {
     return new Promise(r => setTimeout(r, ms));
   }
 
-  // NEW: Lấy insights level=campaign cho account (phân trang)
   private async fetchCampaignInsights(args: {
     apiVersion: string;
     adAccountId: string;
@@ -938,7 +1066,6 @@ export class FacebookAdsService {
     return rows;
   }
 
-  // NEW: Lấy targeting cho nhiều adset_id
   private async fetchAdsetTargetingBatch(args: {
     apiVersion: string;
     fb: AxiosInstance;
@@ -965,12 +1092,12 @@ export class FacebookAdsService {
     };
 
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, adsetIds.length) }, worker));
-    return out; // { [adset_id]: targeting | null }
+    return out;
   }
 
   async listAds(opts: ListOpts = {}, config: any) {
     console.log(`config for listAds: `, config);
-    
+
     const { apiVersion: vEnv, adAccountId, accessTokenUser, cookie } = config;
     const apiVersion = opts.apiVersion || vEnv;
     const fb = this.fb(accessTokenUser, cookie, apiVersion)
@@ -1006,9 +1133,8 @@ export class FacebookAdsService {
     let nextParams: Record<string, any> = { ...baseParams };
 
     try {
-      // 1) Lấy toàn bộ Ads
       while (nextUrl) {
-        this.logger.log(`STEP listAds paginate → GET ${nextUrl} with params?=${Object.keys(nextParams).length>0}`)
+        this.logger.log(`STEP listAds paginate → GET ${nextUrl} with params?=${Object.keys(nextParams).length > 0}`)
         const { data } = await fb.get(nextUrl, { params: nextParams, timeout: 30_000 });
         if (Array.isArray(data?.data)) all.push(...data.data);
         const nxt = data?.paging?.next;
@@ -1020,22 +1146,18 @@ export class FacebookAdsService {
         return { count: 0, items: [], top3Campaigns: [] };
       }
 
-      console.log(`Fetched total ${all.length} ads` , all.slice(0,2));
-      
+      console.log(`Fetched total ${all.length} ads`, all.slice(0, 2));
 
-      // 2) Gom campaign_id
       const campaignIds = this.uniq(all.map(a => a.campaign_id).filter(Boolean));
       if (!campaignIds.length) {
         this.logger.log(`STEP listAds: no campaign ids`)
         return { count: all.length, items: all, top3Campaigns: [] };
       }
 
-      // 3) Insights campaign toàn account rồi lọc
       this.logger.log(`STEP listAds: fetch campaign insights datePreset=${datePreset}`)
       const insightsAll = await this.fetchCampaignInsights({ apiVersion, adAccountId, fb, datePreset });
       const rows = insightsAll.filter((r: any) => campaignIds.includes(r.campaign_id));
 
-      // 4) Tính metric
       const byCamp = new Map<string, any[]>();
       for (const r of rows) {
         const arr = byCamp.get(r.campaign_id) || [];
@@ -1102,14 +1224,12 @@ export class FacebookAdsService {
         });
       }
 
-      // 5) Top 3
       const top3 = scored.sort((a, b) => b.metric - a.metric).slice(0, 3);
       if (!top3.length) {
         this.logger.log(`STEP listAds: no top3 (empty scored)`)
         return { count: all.length, items: top3, top3Campaigns: [] };
       }
 
-      // 6) Targeting của adset thuộc campaign top
       const topCampIds = new Set(top3.map(x => x.campaign_id));
       const adsetsOfTop = this.uniq(
         all.filter(a => topCampIds.has(a.campaign_id)).map(a => a.adset_id).filter(Boolean)
@@ -1122,7 +1242,6 @@ export class FacebookAdsService {
         adsetIds: adsetsOfTop,
       });
 
-      // 7) Gom targeting theo campaign & summary
       const adsetsByCamp: Record<string, Array<{ adset_id: string; targeting: any }>> = {};
       for (const a of all) {
         if (!topCampIds.has(a.campaign_id)) continue;
@@ -1158,7 +1277,7 @@ export class FacebookAdsService {
           cities: cities.slice(0, 10),
           age_min: age.min === Infinity ? null : age.min,
           age_max: age.max === -Infinity ? null : age.max,
-          genders: Array.from(genders), // 1=Nam, 2=Nữ
+          genders: Array.from(genders),
           interests: Array.from(interests).slice(0, 15).map(([id, name]) => ({ id, name })),
         };
       };
@@ -1176,7 +1295,6 @@ export class FacebookAdsService {
         };
       });
 
-      // 8) Trả về
       this.logger.log(`STEP listAds DONE: total=${all.length} top3=${top3.length}`)
       return { count: all.length, items: top3, top3Campaigns };
 
@@ -1186,4 +1304,72 @@ export class FacebookAdsService {
       throw new InternalServerErrorException(apiErr);
     }
   }
+
+  private async pauseAd(adId: string, fb: AxiosInstance) {
+    try {
+      this.logger.log(`STEP pauseAd → POST /${adId}`)
+      await fb.post(
+        `/${adId}`,
+        qs.stringify({ status: 'PAUSED' }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+      )
+      this.logger.log(`⏸️  Ad ${adId} paused.`)
+    } catch (error: any) {
+      const message = error?.response?.data?.error?.error_user_msg || error.message
+      this.logger.error(`❌ Failed to pause Ad ${adId}:`, error?.response?.data || error)
+      throw new BadRequestException(`Tạm dừng quảng cáo thất bại: ${message}`)
+    }
+  }
+
+  async setAdStatus(params: {
+    adId: string;
+    isActive: boolean;
+    user: User;
+    dto0?: AnyDto;
+  }) {
+    const { adId, isActive, user, dto0 } = params;
+
+    try {
+      this.logger.log(`STEP setAdStatus: adId=${adId} → ${isActive ? 'ACTIVE' : 'PAUSED'}`)
+
+      const dto = (dto0 ?? {}) as AnyDto
+      this.logger.log(`STEP 0: Input DTO & user loaded`)
+      const userData = await this.userRepo.findOne({ where: { email: user.email } })
+      if (!userData) throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`)
+
+      const { accessTokenUser, accountAdsId: adAccountId, idPage: pageId, cookie: rawCookie } = userData
+      if (!accessTokenUser) throw new BadRequestException(`Người dùng chưa liên kết Facebook hoặc thiếu accessTokenUser.`)
+      if (!adAccountId) throw new BadRequestException(`Người dùng chưa có accountAdsId. Vui lòng kiểm tra lại.`)
+      if (!pageId && dto.goal !== AdsGoal.LEADS) {
+        this.logger.warn(`User chưa liên kết Fanpage (idPage) – vẫn tiếp tục do chỉ đổi trạng thái ad.`)
+      }
+
+      const fb = this.fb(accessTokenUser, rawCookie, 'v23.0')
+
+      if (isActive) await this.activateAd(adId, fb)
+      else await this.pauseAd(adId, fb)
+
+      try {
+        const rec = await this.facebookAdRepo.findOne({ where: { adId } })
+        if (rec) {
+          rec.status = isActive ? 'ACTIVE' : 'PAUSED'
+          await this.facebookAdRepo.save(rec)
+        }
+      } catch (e) {
+        this.logger.warn(`DB update status warning for adId=${adId}: ${e?.message || e}`)
+      }
+
+      return {
+        success: true,
+        adId,
+        status: isActive ? 'ACTIVE' : 'PAUSED',
+        message: isActive ? 'Đã bật quảng cáo' : 'Đã tắt quảng cáo',
+      }
+    } catch (error: any) {
+      const message = error?.response?.data?.error?.error_user_msg || error.message
+      this.logger.error('❌ setAdStatus failed:', error?.response?.data || error)
+      throw new BadRequestException(`Cập nhật trạng thái quảng cáo thất bại: ${message}`)
+    }
+  }
+
 }
