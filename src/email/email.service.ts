@@ -245,7 +245,7 @@ Dưới đây là dữ liệu quảng cáo:
 - CPM (VNĐ): ${vnd(cpm)}
 
 Lưu ý:
-- Nếu thiếu benchmark, đánh giá tương đối theo mối quan hệ chỉ số (CTR thấp + CPM cao → hiệu quả kém).
+- Nếu thiếu benchmark, đánh giá tương đối theo mối quan hệ chỉ số (CTR thấp + CPM cao → hiệu quả Trung bình).
 - Chỉ đưa tối đa 3 gợi ý có tác động lớn nhất.
 
 Trả về đúng JSON như schema đã nêu.`
