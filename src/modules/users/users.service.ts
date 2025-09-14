@@ -134,6 +134,7 @@ export class UsersService {
 
     // Gán các giá trị cơ bản
     userData.pageInformation = dto.pageInformation;
+    userData.adsInformation = dto.adsInformation;
     userData.cookie = dto.cookie;
     userData.accessTokenUser = dto.accessTokenUser;
     userData.accountAdsId = dto.accountAdsId;

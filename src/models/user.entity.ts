@@ -40,9 +40,12 @@ export class User extends BaseEntity {
     ],
     description: 'Danh sách idPage và accessToken',
   })
-  
+
   @Column({ type: 'jsonb', nullable: true })
   pageInformation?: { idPage?: string; accessToken?: string }[];
+
+  @Column({ type: 'jsonb', nullable: true })
+  adsInformation?: { idAds?: string; accessToken?: string }[];
 
   @Column({ name: 'id_page', nullable: true })
   idPage: string;

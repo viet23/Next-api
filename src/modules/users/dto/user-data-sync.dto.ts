@@ -8,6 +8,20 @@ export class PageInfoDto {
 
   @ApiPropertyOptional({ example: 'EAAG...', description: 'Access token của page' })
   accessToken?: string;
+
+  @ApiPropertyOptional({ example: 'ALLONEADS', description: 'Facebook Page nane' })
+  name?: string;
+}
+
+export class AdsInfoDto {
+  @ApiPropertyOptional({ example: '1234567890', description: 'Ads ID' })
+  idAds?: string;
+
+  @ApiPropertyOptional({ example: 'EAAG...', description: 'Access token của user' })
+  accessToken?: string;
+
+  @ApiPropertyOptional({ example: 'Nguyễn Văn A', description: 'Tên người dùng' })
+  name?: string;
 }
 
 export class UserDataSyncDto {
@@ -22,6 +36,11 @@ export class UserDataSyncDto {
   })
   pageInformation?: PageInfoDto[];
 
+  @ApiPropertyOptional({
+    type: [AdsInfoDto],
+    description: 'Danh sách các tài khoản quảng cáo cùng với accessToken',
+  })
+  adsInformation?: AdsInfoDto[];
 
   @ApiProperty()
   accessTokenUser: string
