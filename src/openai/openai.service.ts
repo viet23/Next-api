@@ -62,24 +62,6 @@ export class OpenaiService {
             throw new BadRequestException('User chưa cấu hình Facebook Ads (accountAdsId hoặc accessTokenUser)');
         }
 
-        // const topcamData = await this.topcamFbRepo
-        //     .createQueryBuilder('topcam')
-        //     .where('topcam.userId = :userId', { userId: userData?.id })
-        //     .getOne();
-
-
-        // const config = { apiVersion: 'v19.0', adAccountId: userData.accountAdsId, accessTokenUser: userData.accessTokenUser }
-        // const limit = '200';
-        // const fields = [`id`, `name`, `adset_id`, `campaign_id`, `status`, `effective_status`, `created_time`, `updated_time`];
-        // const effective_status = [`ACTIVE`, `PAUSED`, `ARCHIVED`];
-        // const apiVersion = 'v19.0';
-        // const top3Campaigns = await this.fbService.listAds({
-        //     limit: Math.max(1, parseInt(limit, 10)), // mặc định 200
-        //     fields,
-        //     effective_status,
-        //     apiVersion,
-        // }, config);
-
         const todayStart = moment().startOf('day').toDate();
         const now = new Date();
 
@@ -160,26 +142,29 @@ export class OpenaiService {
 
         try {
             const { data, headers, status } = await this.http.post(
-                '/chat/completions',
+                'https://api.openai.com/v1/chat/completions',
                 {
-                    model: 'gpt-4',
-                    temperature: 0, // tăng tính nhất quán khi yêu cầu JSON
+                    model: 'gpt-5', // hoặc 'gpt-5-turbo'
                     messages: [
                         {
                             role: 'system',
-                            content:
-                                'Bạn là máy phân tích targeting. Chỉ trả về JSON HỢP LỆ (DUY NHẤT MỘT MẢNG). Không trả thêm ký tự nào khác.',
+                            content: `Bạn là máy phân tích targeting. 
+Chỉ trả về JSON HỢP LỆ (DUY NHẤT MỘT MẢNG). 
+Các key phải viết bằng tiếng Việt có dấu, đúng chính tả. 
+Không trả thêm bất kỳ ký tự nào khác.`,
                         },
                         { role: 'user', content: detailedPrompt },
                     ],
-                    max_tokens: 4000, // dùng tham số chuẩn cho gpt-4
-                    // Lưu ý: Nếu muốn ép JSON nghiêm ngặt, dùng model hỗ trợ response_format (vd: gpt-4-1106-preview, gpt-4o/4.1/4o-mini)
-                    // response_format: { type: 'json_object' },
+                    max_completion_tokens: 4000, // ✅ tham số mới
                 },
                 {
-                    headers: this.buildHeaders(apiKey),
+                    headers: {
+                        Authorization: `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json',
+                    },
                 },
             );
+
 
             const raw: string = data?.choices?.[0]?.message?.content ?? '[]';
             const arr = this.coerceToArray(raw);

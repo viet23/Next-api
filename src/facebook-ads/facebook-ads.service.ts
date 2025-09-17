@@ -428,6 +428,8 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
   // =============== Flow chính ===============
   async createFacebookAd(dto0: CreateFacebookAdDto, user: User) {
     try {
+      console.log(`dto0`, dto0);
+      
       const dto = dto0 as AnyDto
       this.logger.log(`STEP 0: Input DTO & user loaded`)
       const userData = await this.userRepo.findOne({ where: { email: user.email } })
