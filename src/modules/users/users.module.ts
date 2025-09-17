@@ -13,11 +13,13 @@ import { CreateUserCommandHandler } from './cqrs/commands/handler/create-user.ha
 import { UsersService } from './users.service'
 import { EmailModule } from 'src/email/email.module'
 import { CreditTransaction } from '@models/credit-ransaction .entity'
+import { SubscriptionPlan } from '@models/subscription-plan.entity'
+import { UserSubscription } from '@models/user-subscription.entity'
 const CommandHandlers = [UpdateUserCommandHandler, UpdateUserGroupCommandHandler, CreateUserCommandHandler]
 const QueriesHandler = [GetUsersQueryHandler, FindOneUserQueryHandler]
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Role, Group, User,CreditTransaction]), CqrsModule,EmailModule],
+  imports: [TypeOrmModule.forFeature([Role, Group, User,CreditTransaction,SubscriptionPlan,UserSubscription]), CqrsModule,EmailModule],
   controllers: [UsersController],
   exports: [UsersService],
   providers: [...CommandHandlers, ...QueriesHandler, UsersService],

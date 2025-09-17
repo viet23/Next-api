@@ -15,7 +15,7 @@ export class PageInfoDto {
 
 export class AdsInfoDto {
   @ApiPropertyOptional({ example: '1234567890', description: 'Ads ID' })
-  idAds?: string;
+  id?: string;
 
   @ApiPropertyOptional({ example: 'EAAG...', description: 'Access token của user' })
   accessToken?: string;

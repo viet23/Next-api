@@ -82,6 +82,51 @@ export class EmailService {
     }
   }
 
+  async sendPlan(data: any, user: User) {
+    // Lấy thông tin user trong DB
+    const userData = await this.userRepo.findOne({
+      where: { email: user.email },
+    });
+
+    if (!userData) {
+      throw new Error("Không tìm thấy thông tin người dùng");
+    }
+
+    console.log(`data`, data);
+
+    // Email thông báo admin
+    const mailOptions = {
+      from: "2203viettt@gmail.com",
+      to: "nextadsai@gmail.com",
+      subject: `Yêu cầu mua gói ${data.name}`,
+      html: `
+      <h3>Thông tin người dùng yêu cầu mua gói:</h3>
+      <p><strong>Họ tên:</strong> ${userData.fullName}</p>
+      <p><strong>Email:</strong> ${userData.email}</p>
+      <p><strong>Phone:</strong> ${userData.phone}</p>
+      <p><strong>Zalo:</strong> ${userData.zalo || "Không cung cấp"}</p>
+      <hr/>
+      <h4>Thông tin gói đăng ký:</h4>
+      <p><strong>Tên gói:</strong> ${data.name}</p>
+      <p><strong>Số tháng:</strong> ${data.months || 1}</p>
+      <p><strong>Ngày bắt đầu:</strong> ${data.startDate ? new Date(data.startDate).toLocaleDateString("vi-VN") : new Date().toLocaleDateString("vi-VN")
+        }</p>
+      <p><strong>Ngày kết thúc:</strong> ${data.endDate ? new Date(data.endDate).toLocaleDateString("vi-VN") : new Date().toLocaleDateString("vi-VN")
+        }</p>
+    `,
+    };
+
+    try {
+      // Gửi email
+      const info = await this.transporter.sendMail(mailOptions);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      console.error("Lỗi gửi mail:", error);
+      throw new Error("Không thể gửi email xác nhận mua gói");
+    }
+  }
+
+
   async sendFormEmail(data: CreateEmailDto) {
     const { fullName, email, phone, zalo } = data
 

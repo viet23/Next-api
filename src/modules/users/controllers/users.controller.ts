@@ -25,6 +25,8 @@ import { EmailService } from 'src/email/email.service'
 import { createHmac } from "crypto";
 import { UserDataSyncDto } from '../dto/user-data-sync.dto'
 import { Authen } from '@decorators/authen.decorator'
+import { BuyPlanDto } from '../dto/buy-plan.dto'
+import { ConfirmPaymentDto } from '../dto/confirm-payment.dto'
 
 class CheckTokenDto {
   token: string;
@@ -121,6 +123,27 @@ export class UsersController {
   @ApiOperation({ summary: 'Kiểm tra token reset password còn sống không' })
   async checkResetToken(@Authen() user: User) {
     return { message: 'Token còn sống', email: user.email };
+  }
+
+  @Post('buy-plan')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Mua gói dịch vụ (chưa xác nhận thanh toán)' })
+  async buyPlan(@Authen() user: User, @Body() dto: BuyPlanDto) {
+    return this.usersService.buyPlan(user, dto);
+  }
+
+  @Post('confirm-plan')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Xác nhận thanh toán gói dịch vụ' })
+  async confirmPlan(@Authen() user: User, @Body() dto: ConfirmPaymentDto) {
+    return this.usersService.confirmPayment(user, dto);
+  }
+
+  @Get('current-plan')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Lấy gói dịch vụ hiện tại của user (mặc định Free nếu chưa có)' })
+  async getCurrentPlan(@Authen() user: User) {
+    return this.usersService.getCurrentPlan(user);
   }
 
 }

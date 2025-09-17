@@ -12,6 +12,7 @@ import { BaseEntity } from './base.entity';
 import { Group } from './group.entity';
 import { FacebookAd } from './facebook-ad.entity';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { UserSubscription } from './user-subscription.entity';
 
 @Entity({ name: 'tbl_users' })
 export class User extends BaseEntity {
@@ -93,6 +94,9 @@ export class User extends BaseEntity {
     inverseJoinColumn: { name: 'group_id' },
   })
   groups: Group[];
+
+  @OneToMany(() => UserSubscription, (sub) => sub.user)
+  subscriptions: UserSubscription[];
 
 
   @OneToMany(() => FacebookAd, (ad) => ad.createdBy)
