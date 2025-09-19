@@ -7,6 +7,8 @@ import { FacebookAdsService } from 'src/facebook-ads/facebook-ads.service';
 import { Repository } from 'typeorm';
 import { MoreThanOrEqual } from 'typeorm';
 import moment from 'moment';
+import { FacebookPost } from '@models/facebook_post.entity';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class OpenaiService {
@@ -24,6 +26,7 @@ export class OpenaiService {
 
     constructor(@InjectRepository(User) private readonly userRepo: Repository<User>,
         @InjectRepository(TopcamFb) private readonly topcamFbRepo: Repository<TopcamFb>,
+        @InjectRepository(FacebookPost) private readonly repoFacebookPost: Repository<FacebookPost>,
         private readonly fbService: FacebookAdsService) {
         // mark start time
         this.http.interceptors.request.use((config) => {
@@ -57,10 +60,74 @@ export class OpenaiService {
             .where('user.email = :email', { email: user?.email })
             .getOne();
 
+
+
         console.log(`userData in analyzeTargeting-------`, userData);
         if (!userData?.accountAdsId || !userData?.accessTokenUser) {
             throw new BadRequestException('User chưa cấu hình Facebook Ads (accountAdsId hoặc accessTokenUser)');
         }
+
+        const dataFacebookPosts = await this.repoFacebookPost
+            .createQueryBuilder('p')
+            .where(`split_part(p.post_id, '_', 1) = :pageId`, { pageId: userData.idPage })
+            .getMany();
+
+        // Gom & loại trùng keywords
+        const uniqueKeywords = (() => {
+            const all = dataFacebookPosts.flatMap(post =>
+                Array.isArray(post?.dataTargeting?.keywordsForInterestSearch)
+                    ? post.dataTargeting.keywordsForInterestSearch
+                    : []
+            );
+            const cleaned = all.map(k => (k ?? '').trim()).filter(Boolean);
+            const firstCaseMap = new Map<string, string>();
+            for (const k of cleaned) {
+                const lc = k.toLowerCase();
+                if (!firstCaseMap.has(lc)) firstCaseMap.set(lc, k);
+            }
+            return [...firstCaseMap.values()].sort((a, b) => a.localeCompare(b));
+        })();
+
+        // Gắn luôn vào phần tử đầu tiên
+        if (dataFacebookPosts[0]) {
+            dataFacebookPosts[0].dataTargeting = {
+                ...(dataFacebookPosts[0].dataTargeting ?? {}),
+                keywordsForInterestSearch: uniqueKeywords,
+            };
+        }
+
+        if (dataFacebookPosts[0].dataTargeting.keywordsForInterestSearch.length > 0) {
+
+            const first = dataFacebookPosts[0]?.dataTargeting ?? {};
+            const result = first && Object.keys(first).length ? [first] : [];
+
+            return {
+                ok: true,
+                result,
+                raw: JSON.stringify(result, null, 2), // 👈 giống data 1 (string JSON pretty)
+                usage: {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: 0,
+                    prompt_tokens_details: {
+                        cached_tokens: 0,
+                        audio_tokens: 0,
+                    },
+                    completion_tokens_details: {
+                        reasoning_tokens: 0,
+                        audio_tokens: 0,
+                        accepted_prediction_tokens: 0,
+                        rejected_prediction_tokens: 0,
+                    },
+                },
+                model: 'gpt-5-2025-08-07',
+                requestId: `req_${typeof randomUUID === 'function'
+                    ? randomUUID()
+                    : Math.random().toString(36).slice(2)}`, // fallback nếu thiếu crypto
+                status: 200,
+            };
+        }
+
 
         const todayStart = moment().startOf('day').toDate();
         const now = new Date();

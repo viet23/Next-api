@@ -6,9 +6,10 @@ import { User } from '@models/user.entity';
 import { CqrsModule } from '@nestjs/cqrs';
 import { FacebookModule } from 'src/facebook-ads/facebook-ads.module';
 import { TopcamFb } from '@models/topcam-fb.entity';
+import { FacebookPost } from '@models/facebook_post.entity';
 
 @Module({
-  imports: [FacebookModule, TypeOrmModule.forFeature([User,TopcamFb]), CqrsModule],
+  imports: [FacebookModule, TypeOrmModule.forFeature([User,TopcamFb , FacebookPost]), CqrsModule],
   controllers: [OpenaiController],
   providers: [OpenaiService]
 })
