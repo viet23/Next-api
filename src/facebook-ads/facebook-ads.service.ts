@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common' 
+import { Injectable, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common'
 import axios, { AxiosInstance } from 'axios'
 import { CreateFacebookAdDto, AdsGoal } from './dto/facebook-ads.dto'
 import qs from 'qs'
@@ -20,7 +20,19 @@ type AnyDto = CreateFacebookAdDto & {
   instagramActorId?: string
   /** dùng cho Lead Ads */
   leadgenFormId?: string
+  /** toggle mở Advantage Audience */
+  aiTargeting?: boolean
+  /** gợi ý AI */
+  targetingAI?: {
+    keywordsForInterestSearch?: string[]
+    behaviors?: Array<{ id: string; name?: string }>
+  }
+  /** NEW: đơn vị bán kính client truyền vào (m/km/mi) */
+  radiusUnit?: 'm' | 'km' | 'mi'
 }
+
+type TargetingSpec = Record<string, any>;
+type MediaKind = 'video' | 'photo' | 'link' | 'status' | 'unknown'
 
 type ListOpts = {
   fields?: string[];
@@ -30,8 +42,6 @@ type ListOpts = {
   rankBy?: 'roas' | 'cpl' | 'ctr';
   datePreset?: string; // 'last_7d', 'last_30d', 'today'
 };
-
-type MediaKind = 'video' | 'photo' | 'link' | 'status' | 'unknown'
 
 // ================= FB CLIENT =================
 const isServer = typeof window === 'undefined'
@@ -59,9 +69,7 @@ function createFbGraphClient(opts: {
   })
   client.interceptors.request.use((config) => {
     const proof = buildAppSecretProof(token)
-    if (proof) {
-      config.params = { ...(config.params || {}), appsecret_proof: proof }
-    }
+    if (proof) config.params = { ...(config.params || {}), appsecret_proof: proof }
     return config
   })
   return client
@@ -82,11 +90,11 @@ export class FacebookAdsService {
     return createFbGraphClient({ token, cookie, version, timeoutMs })
   }
 
-  // =============== Helpers ===============
+  // =============== Helpers (mapping) ===============
   private mapGender(g?: 'all' | 'male' | 'female'): number[] | undefined {
     if (!g || g === 'all') return undefined
-    if (g === 'male') return [1]
-    if (g === 'female') return [2]
+    if (g === 'male') return [1]   // FB: 1=male
+    if (g === 'female') return [2] // FB: 2=female
     return undefined
   }
 
@@ -172,11 +180,25 @@ export class FacebookAdsService {
     if (isNaN(Date.parse(val))) throw new BadRequestException(`${label} không đúng định dạng ISO 8601`)
   }
 
-  private clampRadiusMiles(v?: number) {
-    if (typeof v !== 'number' || isNaN(v)) return undefined
-    return Math.max(1, Math.min(50, Number(v.toFixed(2))))
+  /** NEW: Quy đổi bán kính về mile (1–50) theo đơn vị truyền vào/heuristic */
+  private normalizeRadiusToMiles(value?: number, unit?: 'm' | 'km' | 'mi'): number | undefined {
+    if (typeof value !== 'number' || isNaN(value) || value <= 0) return undefined;
+
+    let miles: number;
+    if (unit === 'mi') miles = value;
+    else if (unit === 'km') miles = value / 1.609;
+    else if (unit === 'm') miles = (value / 1000) / 1.609;
+    else {
+      // Heuristic khi không truyền đơn vị
+      if (value > 2000) miles = (value / 1000) / 1.609; // coi là mét
+      else if (value > 50) miles = value / 1.609;       // coi là km
+      else miles = value;                                // coi là mile
+    }
+
+    return Math.max(1, Math.min(50, Number(miles.toFixed(2))));
   }
 
+  // =============== Helpers (Graph utils) ===============
   private async detectMediaKind(postId: string, fb: AxiosInstance): Promise<MediaKind> {
     if (!postId) return 'unknown'
     try {
@@ -249,12 +271,43 @@ export class FacebookAdsService {
     return okList
   }
 
+  // =============== Targeting build/normalize ===============
+  /** gom interests / behaviors vào flexible_spec (Graph yêu cầu) */
+  private normalizeTargetingForCreation(t: TargetingSpec) {
+    const out: TargetingSpec = { ...(t || {}) };
+    const flex: any[] = Array.isArray(out.flexible_spec) ? [...out.flexible_spec] : [];
+
+    // nếu dev lỡ gán root.interests / root.behaviors → chuyển sang flexible_spec
+    if (Array.isArray(out.interests) && out.interests.length) {
+      flex.push({ interests: out.interests });
+      delete out.interests;
+    }
+    if (Array.isArray(out.behaviors) && out.behaviors.length) {
+      flex.push({ behaviors: out.behaviors });
+      delete out.behaviors;
+    }
+
+    if (flex.length) out.flexible_spec = flex;
+    return out;
+  }
+
+  /** trộn interests/behaviors (flexible_spec) với dữ liệu sẵn có */
+  private mergeFlex(t: TargetingSpec, chunk: { interests?: any[]; behaviors?: any[] }) {
+    const flex: any[] = Array.isArray(t.flexible_spec) ? [...t.flexible_spec] : [];
+    const add: any = {};
+    if (chunk.interests?.length) add.interests = chunk.interests;
+    if (chunk.behaviors?.length) add.behaviors = chunk.behaviors;
+    if (Object.keys(add).length) flex.push(add);
+    if (flex.length) t.flexible_spec = flex;
+    return t;
+  }
+
   private async buildTargeting(
     dto: AnyDto,
     adAccountId: string,
     fb: AxiosInstance
   ) {
-    const clampedRadius = this.clampRadiusMiles(dto.radius)
+    const clampedRadius = this.normalizeRadiusToMiles(dto.radius, dto.radiusUnit)
     const geo_locations =
       dto.location && typeof clampedRadius === 'number'
         ? { custom_locations: [{ latitude: dto.location.lat, longitude: dto.location.lng, radius: clampedRadius, distance_unit: 'mile' }] }
@@ -263,25 +316,24 @@ export class FacebookAdsService {
     const disableInstagram = dto.goal === AdsGoal.ENGAGEMENT && !dto.instagramActorId
     const placements = this.mapPlacements(dto.goal, { disableInstagram })
 
-    const targetingBase: any = {
+    const targetingBase: TargetingSpec = {
       geo_locations,
       ...placements,
       targeting_automation: { advantage_audience: dto.aiTargeting ? 1 : 0 },
     }
 
-    if (dto.aiTargeting) return targetingBase
+    const targeting: TargetingSpec = { ...targetingBase }
 
-    const targeting: any = { ...targetingBase }
-
+    // age/gender
     if (Array.isArray(dto.ageRange) && dto.ageRange.length === 2) {
       const [min, max] = dto.ageRange
       if (Number.isFinite(min)) targeting.age_min = Math.max(13, Math.floor(min))
       if (Number.isFinite(max)) targeting.age_max = Math.floor(max)
     }
-
     const genders = this.mapGender(dto.gender)
     if (genders) targeting.genders = genders
 
+    // interests (manual + AI keywords) → search → flexible_spec
     const manualInterestNames: string[] = Array.isArray(dto.detailedTargeting) ? dto.detailedTargeting.filter(Boolean) : []
     const aiKeywords: string[] = Array.isArray(dto?.targetingAI?.keywordsForInterestSearch)
       ? dto.targetingAI.keywordsForInterestSearch
@@ -289,19 +341,20 @@ export class FacebookAdsService {
     const needLookup = [...new Set([...manualInterestNames, ...aiKeywords])]
     if (needLookup.length > 0) {
       const lookedUp = await this.searchInterestsByNames(needLookup, fb)
-      if (lookedUp.length) targeting.interests = lookedUp.slice(0, 10)
+      if (lookedUp.length) this.mergeFlex(targeting, { interests: lookedUp.slice(0, 10) })
     }
 
+    // behaviors → validate → flexible_spec (skip cho MESSAGE theo logic cũ)
     if (dto.goal !== AdsGoal.MESSAGE && Array.isArray(dto?.targetingAI?.behaviors) && dto.targetingAI.behaviors.length) {
       const raw = dto.targetingAI.behaviors
         .filter((b: any) => b?.id && /^\d+$/.test(String(b.id)))
         .map((b: any) => ({ id: String(b.id), name: b.name }))
         .slice(0, 10)
       const valid = await this.validateBehaviors(raw, adAccountId, fb)
-      if (valid.length) targeting.behaviors = valid
+      if (valid.length) this.mergeFlex(targeting, { behaviors: valid })
     }
 
-    return targeting
+    return this.normalizeTargetingForCreation(targeting)
   }
 
   // =============== Upload ảnh ===============
@@ -365,7 +418,7 @@ export class FacebookAdsService {
     throw new BadRequestException('Thiếu ảnh cho quảng cáo: vui lòng truyền imageHash hoặc imageUrl.')
   }
 
-  // ====== Lead Form helpers (auto-pick/create) ======
+  // ====== Lead Form helpers ======
   private async pickLatestPublishedLeadFormId(pageId: string, fb: AxiosInstance): Promise<string | null> {
     try {
       const { data } = await fb.get(`/${pageId}/leadgen_forms`, {
@@ -384,40 +437,27 @@ export class FacebookAdsService {
     }
   }
 
-  /** Tạo 1 Instant Form mặc định (Họ tên + SĐT, vi_VN) */
-  // Thay nguyên hàm cũ bằng hàm này
-private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'Form cơ bản - Họ tên + SĐT') {
-  const questions = [
-    { type: 'FULL_NAME' },
-    { type: 'PHONE' },
-  ];
+  /** Tạo 1 Instant Form mặc định */
+  private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'Form cơ bản - Họ tên + SĐT') {
+    const questions = [{ type: 'FULL_NAME' }, { type: 'PHONE' }];
+    const thank_you_page = { title: 'Cảm ơn bạn!', body: 'Chúng tôi sẽ liên hệ sớm.', button_type: 'NONE' };
 
-  // button_type phải thuộc {VIEW_WEBSITE, CALL_BUSINESS, MESSAGE_BUSINESS, DOWNLOAD,
-  // SCHEDULE_APPOINTMENT, VIEW_ON_FACEBOOK, PROMO_CODE, NONE, WHATSAPP, P2B_MESSENGER}
-  const thank_you_page = {
-    title: 'Cảm ơn bạn!',
-    body: 'Chúng tôi sẽ liên hệ trong thời gian sớm nhất.',
-    button_type: 'NONE', // <-- dùng 'NONE' thay vì 'NO_BUTTON'
-  };
+    const body = qs.stringify({
+      name,
+      privacy_policy_url: 'https://www.freeprivacypolicy.com/live/e61a4cad-b80f-451e-a877-c3e31e929689', // TODO: thay URL thật
+      questions: JSON.stringify(questions),
+      locale: 'vi_VN',
+      thank_you_page: JSON.stringify(thank_you_page),
+    });
 
-  const body = qs.stringify({
-    name,
-    privacy_policy_url: 'https://www.freeprivacypolicy.com/live/e61a4cad-b80f-451e-a877-c3e31e929689', // TODO: đổi sang URL policy thật
-    questions: JSON.stringify(questions),
-    locale: 'vi_VN',
-    thank_you_page: JSON.stringify(thank_you_page),
-  });
+    this.logger.log(`POST /${pageId}/leadgen_forms → tạo form mặc định`);
+    const { data } = await fb.post(`/${pageId}/leadgen_forms`, body, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
 
-  this.logger.log(`POST /${pageId}/leadgen_forms → tạo form mặc định`);
-  const { data } = await fb.post(`/${pageId}/leadgen_forms`, body, {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  });
+    return data?.id as string;
+  }
 
-  return data?.id as string;
-}
-
-
-  /** Lấy form id: ưu tiên form PUBLISHED mới nhất; nếu không có thì tạo mới */
   private async ensureLeadFormId(pageId: string, fb: AxiosInstance, campaignName?: string) {
     const picked = await this.pickLatestPublishedLeadFormId(pageId, fb)
     if (picked) return picked
@@ -425,12 +465,11 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
     return created
   }
 
-  // =============== Flow chính ===============
+  // =============== Flow chính (create) ===============
   async createFacebookAd(dto0: CreateFacebookAdDto, user: User) {
     try {
-      console.log(`dto0`, dto0);
-      
       const dto = dto0 as AnyDto
+
       this.logger.log(`STEP 0: Input DTO & user loaded`)
       const userData = await this.userRepo.findOne({ where: { email: user.email } })
       if (!userData) throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`)
@@ -440,6 +479,9 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
       if (!adAccountId) throw new BadRequestException(`Người dùng chưa có accountAdsId. Vui lòng kiểm tra lại.`)
       if (!pageId && dto.goal !== AdsGoal.LEADS) throw new BadRequestException(`Người dùng chưa liên kết Fanpage (idPage).`)
 
+      if (dto.goal == AdsGoal.LEADS) {
+        dto.goal = AdsGoal.ENGAGEMENT
+      }
       const fb = this.fb(accessTokenUser, rawCookie, 'v23.0')
 
       this.logger.log(`STEP 1: Detect media kind (if needed)`)
@@ -544,6 +586,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
 
     this.logger.log(`STEP createAdSet: build targeting`)
     let targetingPayload = await this.buildTargeting(dto, adAccountId, fb)
+    targetingPayload = this.normalizeTargetingForCreation(targetingPayload)
     this.logger.log(`STEP createAdSet: targeting built: ${JSON.stringify(targetingPayload)}`)
 
     const initial = this.mapAdsetOptimization(dto.goal)
@@ -583,14 +626,11 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
       status: 'PAUSED',
     }
 
-    // Luôn gửi promoted_object khi có pageId (đặc biệt ENGAGEMENT/LEADS)
     const makeRequest = (tp: any, goal: string, campId: string) => {
       this.logger.log(`STEP createAdSet → POST /${adAccountId}/adsets goal=${goal} camp=${campId}`)
       const body: any = { ...payloadBase, optimization_goal: goal, campaign_id: campId, targeting: JSON.stringify(tp) }
       if (isMessage) body.destination_type = destination
-      if (pageId) {
-        body.promoted_object = JSON.stringify(basePromotedObject)
-      }
+      if (pageId) body.promoted_object = JSON.stringify(basePromotedObject)
       return fb.post(
         `/${adAccountId}/adsets`,
         qs.stringify(body),
@@ -604,16 +644,22 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
       const msg = error?.error_user_msg || error?.message || ''
       const blame = error?.error_data?.blame_field || error?.error_data?.blame_field_specs
 
+      // behaviors invalid → bỏ behaviors, GIỮ interests
       if (sub === 1487079 || /behaviors?.+invalid/i.test(msg)) {
-        if (currentPayload.behaviors) {
-          this.logger.warn('⚠️ Behaviors invalid → retry WITHOUT behaviors')
-          const { behaviors, ...rest } = currentPayload
-          const res2 = await makeRequest(rest, goal, campId)
-          this.logger.log(`✅ AdSet created (no behaviors): ${res2.data.id}`)
-          return { id: res2.data.id }
+        if (currentPayload?.flexible_spec) {
+          const flex = (currentPayload.flexible_spec as any[]).map(fs => {
+            if (fs.behaviors) { const { behaviors, ...rest } = fs; return rest; }
+            return fs;
+          }).filter(fs => Object.keys(fs).length);
+          const patched = { ...currentPayload, flexible_spec: flex };
+          this.logger.warn('⚠️ Behaviors invalid → retry WITHOUT behaviors (keep interests)');
+          const res2 = await makeRequest(patched, goal, campId);
+          this.logger.log(`✅ AdSet created (no behaviors): ${res2.data.id}`);
+          return { id: res2.data.id };
         }
       }
 
+      // radius lỗi → set radius=50mi
       if (sub === 1487941 || /bán kính|radius/i.test(msg) || blame === 'targeting') {
         const hasCustomLoc = currentPayload?.geo_locations?.custom_locations?.length > 0
         if (hasCustomLoc) {
@@ -627,6 +673,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
         }
       }
 
+      // Advantage flag thiếu
       if (sub === 1870227 || /Advantage Audience Flag Required/i.test(msg)) {
         const patched = { ...currentPayload, targeting_automation: { advantage_audience: 1 } }
         this.logger.warn('⚠️ Advantage flag missing → retry with advantage_audience=1')
@@ -635,50 +682,50 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
         return { id: res4.data.id }
       }
 
-      // ⚠️ ENGAGEMENT: KHÔNG bỏ promoted_object. Cứu bằng cách nới targeting/placements.
-      if (isEngagement && (/performance goal|mục tiêu hiệu quả|incompatible/i.test(msg))) {
-        if (currentPayload?.targeting_automation) {
-          const { targeting_automation, ...rest } = currentPayload
-          this.logger.warn('⚠️ ENGAGEMENT incompatible → retry WITHOUT targeting_automation')
-          const resA = await makeRequest(rest, goal, campId)
-          this.logger.log(`✅ AdSet created (no targeting_automation): ${resA.data.id}`)
-          return { id: resA.data.id }
-        }
-        if (currentPayload?.interests?.length || currentPayload?.flexible_spec || currentPayload?.detailed_targeting) {
-          const { interests, flexible_spec, detailed_targeting, ...rest } = currentPayload
-          this.logger.warn('⚠️ ENGAGEMENT incompatible → retry WITHOUT detailed targeting (broad)')
-          const resB = await makeRequest(rest, goal, campId)
-          this.logger.log(`✅ AdSet created (broad, kept promoted_object): ${resB.data.id}`)
-          return { id: resB.data.id }
-        }
-        if (Array.isArray(currentPayload.publisher_platforms) && currentPayload.publisher_platforms.includes('instagram')) {
-          const rest = {
-            ...currentPayload,
-            publisher_platforms: ['facebook'],
-            facebook_positions: ['feed'],
-          }
-          delete (rest as any).instagram_positions
-          this.logger.warn('⚠️ ENGAGEMENT incompatible → retry with Facebook-only placements')
-          const resC = await makeRequest(rest, goal, campId)
-          this.logger.log(`✅ AdSet created (FB-only, kept promoted_object): ${resC.data.id}`)
-          return { id: resC.data.id }
-        }
-      }
-
+      // Incompatible goal: nới dần (1) bỏ behaviors, (2) giảm bớt interests, (3) broad
       if (/performance goal|mục tiêu hiệu quả|incompatible/i.test(msg)) {
-        if (currentPayload?.targeting_automation) {
-          const { targeting_automation, ...rest } = currentPayload
-          this.logger.warn('⚠️ Incompatible → retry WITHOUT targeting_automation')
-          const res6 = await makeRequest(rest, goal, campId)
-          this.logger.log(`✅ AdSet created (no targeting_automation): ${res6.data.id}`)
-          return { id: res6.data.id }
+        let patched = { ...currentPayload };
+
+        // (1) bỏ behaviors trước nếu có
+        if (patched?.flexible_spec?.some((fs: any) => fs.behaviors)) {
+          const flex = patched.flexible_spec.map((fs: any) => {
+            if (fs.behaviors) { const { behaviors, ...rest } = fs; return rest; }
+            return fs;
+          }).filter((fs: any) => Object.keys(fs).length);
+          patched = { ...patched, flexible_spec: flex };
+          this.logger.warn('⚠️ Incompatible → retry WITHOUT behaviors (keep interests)');
+          try {
+            const resB1 = await makeRequest(patched, goal, campId);
+            this.logger.log(`✅ AdSet created (no behaviors): ${resB1.data.id}`);
+            return { id: resB1.data.id };
+          } catch { }
         }
-        if (currentPayload?.interests?.length || currentPayload?.flexible_spec || currentPayload?.detailed_targeting) {
-          const { interests, flexible_spec, detailed_targeting, ...rest } = currentPayload
-          this.logger.warn('⚠️ Incompatible → retry WITHOUT interests (broad)')
-          const res7 = await makeRequest(rest, goal, campId)
-          this.logger.log(`✅ AdSet created (broad): ${res7.data.id}`)
-          return { id: res7.data.id }
+
+        // (2) nếu vẫn fail: chỉ giữ tối đa 5 interests (nhóm đầu tiên có interests)
+        const hasInterests = patched?.flexible_spec?.some((fs: any) => Array.isArray(fs.interests) && fs.interests.length);
+        if (hasInterests) {
+          const flex = patched.flexible_spec.map((fs: any) => {
+            if (Array.isArray(fs.interests)) {
+              return { interests: fs.interests.slice(0, 5) };
+            }
+            return fs;
+          });
+          const patched2 = { ...patched, flexible_spec: flex };
+          this.logger.warn('⚠️ Incompatible → retry with TOP-5 interests only');
+          try {
+            const resB2 = await makeRequest(patched2, goal, campId);
+            this.logger.log(`✅ AdSet created (top-5 interests): ${resB2.data.id}`);
+            return { id: resB2.data.id };
+          } catch { }
+        }
+
+        // (3) cuối cùng: broad (bỏ flexible_spec)
+        if (patched?.flexible_spec) {
+          const { flexible_spec, ...rest } = patched;
+          this.logger.warn('⚠️ Incompatible → retry BROAD (no flexible_spec)');
+          const resB3 = await makeRequest(rest, goal, campId);
+          this.logger.log(`✅ AdSet created (broad): ${resB3.data.id}`);
+          return { id: resB3.data.id };
         }
       }
 
@@ -707,6 +754,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
       }
     }
 
+    // Fallback sang campaign objective khác nếu tất cả fail
     const baseObjective = this.mapCampaignObjective(dto.goal)
     const fallbackObjectives = ['OUTCOME_ENGAGEMENT', 'OUTCOME_AWARENESS', 'OUTCOME_TRAFFIC'].filter(obj => obj !== baseObjective)
 
@@ -743,6 +791,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
     )
   }
 
+  // =============== Creative ===============
   private async createCreative(
     dto0: CreateFacebookAdDto,
     adAccountId: string,
@@ -754,35 +803,19 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
 
       // LEADS
       if (dto.goal === AdsGoal.LEADS) {
-        // 1) Lấy/ tạo form nếu thiếu
         let formId = dto.leadgenFormId
         if (!formId) {
           formId = await this.ensureLeadFormId(pageId, fb, dto.campaignName)
-          if (!formId) {
-            throw new BadRequestException('Thiếu leadgenFormId và không thể tạo/tìm Instant Form nào trên Page.')
-          }
+          if (!formId) throw new BadRequestException('Thiếu leadgenFormId và không thể tạo/tìm Instant Form nào trên Page.')
           this.logger.log(`Using leadgenFormId=${formId}`)
         }
 
-        // 2) Ảnh (tuỳ chọn)
         let image_hash: string | undefined
         if (dto.imageHash) image_hash = dto.imageHash
-        else if (dto.imageUrl) {
-          try { image_hash = await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, fb) } catch { }
-        }
+        else if (dto.imageUrl) { try { image_hash = await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, fb) } catch { } }
 
-        // 3) CTA gắn form
-        const call_to_action: any = {
-          type: 'LEARN_MORE',
-          value: { lead_gen_form_id: formId },
-        }
-
-        // 4) link_data vẫn cần (Meta sẽ dùng form)
-        const link_data: any = {
-          link: 'https://www.facebook.com/', // placeholder
-          message: dto.caption || '',
-          call_to_action,
-        }
+        const call_to_action: any = { type: 'LEARN_MORE', value: { lead_gen_form_id: formId } }
+        const link_data: any = { link: 'https://www.facebook.com/', message: dto.caption || '', call_to_action }
         if (image_hash) link_data.image_hash = image_hash
 
         const object_story_spec = { page_id: pageId, link_data }
@@ -796,6 +829,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
         return res.data.id
       }
 
+      // TRAFFIC
       if (dto.goal === AdsGoal.TRAFFIC) {
         const link = (dto.urlWebsite || dto.linkUrl || '').trim()
         if (!/^https?:\/\//i.test(link) || /facebook\.com|fb\.com/i.test(link)) {
@@ -804,15 +838,9 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
 
         let image_hash: string | undefined
         if (dto.imageHash) image_hash = dto.imageHash
-        else if (dto.imageUrl) {
-          try { image_hash = await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, fb) } catch { }
-        }
+        else if (dto.imageUrl) { try { image_hash = await this.uploadAdImageFromUrl(adAccountId, dto.imageUrl, fb) } catch { } }
 
-        const link_data: any = {
-          link,
-          message: dto.caption || '',
-          call_to_action: { type: 'LEARN_MORE', value: { link } },
-        }
+        const link_data: any = { link, message: dto.caption || '', call_to_action: { type: 'LEARN_MORE', value: { link } } }
         if (image_hash) link_data.image_hash = image_hash
 
         const object_story_spec = { page_id: pageId, link_data }
@@ -826,6 +854,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
         return res.data.id
       }
 
+      // MESSAGE
       if (dto.goal === AdsGoal.MESSAGE) {
         const destination = (dto.messageDestination || 'MESSENGER') as 'MESSENGER' | 'WHATSAPP' | 'INSTAGRAM_DIRECT'
         const imgHash = dto.imageHash || await this.ensureImageHash(dto, adAccountId, fb)
@@ -839,10 +868,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
         }
 
         const linkUrl = dto.linkUrl || dto.urlWebsite || 'https://www.alloneads.com/'
-        const object_story_spec = {
-          page_id: pageId,
-          link_data: { link: linkUrl, message: dto.caption || '', image_hash: imgHash, call_to_action },
-        }
+        const object_story_spec = { page_id: pageId, link_data: { link: linkUrl, message: dto.caption || '', image_hash: imgHash, call_to_action } }
 
         this.logger.log(`STEP createCreative CTM → POST /${adAccountId}/adcreatives`)
         const res = await fb.post(
@@ -871,6 +897,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
     }
   }
 
+  // =============== Fallback Awareness (pixel) ===============
   private async createAwarenessFallbackAndAd(
     dto: AnyDto,
     adAccountId: string,
@@ -882,7 +909,6 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
     const fbCampaignId = await this.createCampaign(dto, adAccountId, fb, 'OUTCOME_AWARENESS')
 
     const targeting = await this.buildTargeting(dto, adAccountId, fb)
-
     const payload = {
       name: `${dto.campaignName} - Awareness Fallback`,
       campaign_id: fbCampaignId,
@@ -893,7 +919,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
       start_time: dto.startTime,
       end_time: dto.endTime,
       status: 'PAUSED',
-      targeting: JSON.stringify(targeting),
+      targeting: JSON.stringify(this.normalizeTargetingForCreation(targeting)),
       promoted_object: JSON.stringify({ page_id: pageId }),
     }
 
@@ -917,6 +943,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
     return { ad: adRes.data, fbCampaignId, fbAdSetId }
   }
 
+  // =============== Ad ===============
   private async createAd(
     dto0: CreateFacebookAdDto,
     adSetId: string,
@@ -1002,30 +1029,297 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
     }
   }
 
-  async updateAdInsight(id: string, dto: AdInsightUpdateDTO) {
-    try {
-      this.logger.log(`STEP updateAdInsight: id=${id} isActive=${dto.isActive}`)
-      const adInsight = await this.adInsightRepo
-        .createQueryBuilder('adInsight')
-        .where('adInsight.id=:id', { id })
-        .getOne()
-      adInsight.isActive = dto.isActive
-      const saved = await this.adInsightRepo.save(adInsight)
-      this.logger.log(`STEP updateAdInsight DONE`)
-      return saved
-    } catch (error: any) {
-      const errorMessage = error?.response?.data?.error?.error_user_msg || error.message
-      this.logger.error('❌ updateAdInsight failed:', error?.response?.data || error)
-      throw new BadRequestException(`Cập nhập quảng cáo thất bại: ${errorMessage}`)
+  // ================== UPDATE GỐC + APPLY FACEBOOK ==================
+  // async updateAdInsight(id: string, dto: AdInsightUpdateDTO) {
+  //   try {
+  //     this.logger.log(`STEP updateAdInsight: id=${id} isActive=${dto.isActive}`);
+
+  //     const adInsight = await this.adInsightRepo
+  //       .createQueryBuilder('adInsight')
+  //       .where('adInsight.id=:id', { id })
+  //       .getOne();
+  //     if (!adInsight) throw new BadRequestException(`Không tìm thấy AdInsight id=${id}`);
+
+  //     if (typeof dto.isActive === 'boolean') adInsight.isActive = dto.isActive;
+
+  //     const saved = await this.adInsightRepo.save(adInsight);
+  //     this.logger.log(`STEP updateAdInsight DONE`);
+
+  //     let fbApplied: any = null;
+  //     let fbError: string | null = null;
+
+  //     try {
+  //       fbApplied = await this.applyFromAdInsight(adInsight);
+  //     } catch (e: any) {
+  //       fbError = e?.response?.data?.error?.error_user_msg || e?.message || String(e);
+  //       this.logger.error('❌ applyFromAdInsight failed:', e?.response?.data || e);
+  //     }
+
+  //     return { ...saved, fbApplied, fbError };
+
+  //   } catch (error: any) {
+  //     const errorMessage = error?.response?.data?.error?.error_user_msg || error.message;
+  //     this.logger.error('❌ updateAdInsight failed:', error?.response?.data || error);
+  //     throw new BadRequestException(`Cập nhập quảng cáo thất bại: ${errorMessage}`);
+  //   }
+  // }
+
+  // ================== HELPERS: chỉ dùng nội bộ ==================
+
+  // 1) Rút “plan” từ AdInsight
+  private extractPlanFromAdInsight(ad: AdInsight): any | null {
+    if (ad.engagementDetails) {
+      try {
+        const obj = JSON.parse(ad.engagementDetails);
+        if (obj && typeof obj === 'object') return obj;
+      } catch { }
     }
+    const text = `${ad.recommendation || ''}\n${ad.htmlReport || ''}`;
+    const m = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (m) {
+      try {
+        const obj = JSON.parse(m[0]);
+        if (obj && typeof obj === 'object') return obj;
+      } catch { }
+    }
+    return null;
   }
 
-  // ====== tiện ích ======
-  private uniq<T>(arr: T[]): T[] {
-    return Array.from(new Set(arr));
+  // 2) Lấy user + fb context
+  // private async getAdContextByAdId(
+  //   adId: string,
+  //   userLookup: { userId?: string | null; email?: string | null }
+  // ) {
+  //   const toData = async <T>(p: Promise<any>): Promise<T> => (await p).data as T;
+
+  //   const userData =
+  //     (userLookup.userId
+  //       ? await this.userRepo.findOne({ where: { id: userLookup.userId } })
+  //       : null) ||
+  //     (userLookup.email
+  //       ? await this.userRepo.findOne({ where: { email: userLookup.email } })
+  //       : null);
+
+  //   if (!userData) throw new BadRequestException('Không tìm thấy user cho adInsight.');
+  //   const { accessTokenUser, cookie, accountAdsId, idPage } = userData;
+  //   if (!accessTokenUser) throw new BadRequestException('Thiếu accessTokenUser.');
+
+  //   const fb = this.fb(accessTokenUser, cookie, 'v23.0');
+
+  //   const ad = await toData<any>(
+  //     fb.get(`/${adId}`, {
+  //       params: {
+  //         fields:
+  //           'id,name,status,adset_id,campaign_id,creative{effective_object_story_id,object_story_spec}',
+  //       },
+  //     })
+  //   );
+  //   if (!ad?.adset_id || !ad?.campaign_id) {
+  //     throw new BadRequestException(`Ad thiếu adset_id/campaign_id (adId=${adId}).`);
+  //   }
+
+  //   const [adset, campaign] = await Promise.all([
+  //     toData<any>(
+  //       fb.get(`/${ad.adset_id}`, {
+  //         params: {
+  //           fields:
+  //             'id,name,status,effective_targeting,targeting,daily_budget,lifetime_budget,optimization_goal,billing_event',
+  //         },
+  //       })
+  //     ),
+  //     toData<any>(
+  //       fb.get(`/${ad.campaign_id}`, {
+  //         params: { fields: 'id,name,status,objective' },
+  //       })
+  //     ),
+  //   ]);
+
+  //   return { fb, userData, ad, adset, campaign, adAccountId: accountAdsId, pageId: idPage };
+  // }
+
+  // 3) Merge targeting theo plan
+  private mergeTargeting(current: TargetingSpec, plan: any): TargetingSpec {
+    const t: TargetingSpec = { ...(current || {}) };
+
+    if (plan.set_auto_placements) {
+      delete t.publisher_platforms;
+      delete t.facebook_positions;
+      delete t.instagram_positions;
+      delete t.device_platforms;
+    }
+    if (plan.expand_audience === true) {
+      (t as any).targeting_automation = { advantage_audience: 1 };
+    }
+    if (plan.age_range?.min) t.age_min = Number(plan.age_range.min);
+    if (plan.age_range?.max) t.age_max = Number(plan.age_range.max);
+    if (Array.isArray(plan.genders)) t.genders = plan.genders;
+    if (Array.isArray(plan.locales)) t.locales = plan.locales;
+
+    if (plan.geo) {
+      t.geo_locations = {
+        ...(t.geo_locations || {}),
+        ...(plan.geo.countries ? { countries: plan.geo.countries } : {}),
+        ...(plan.geo.cities ? { cities: plan.geo.cities } : {}),
+        ...(plan.geo.regions ? { regions: plan.geo.regions } : {}),
+        ...(plan.geo.location_types ? { location_types: plan.geo.location_types } : {}),
+      };
+      // nếu plan có custom_locations
+      if (Array.isArray(plan.geo.custom_locations) && plan.geo.custom_locations.length) {
+        t.geo_locations = {
+          ...(t.geo_locations || {}),
+          custom_locations: plan.geo.custom_locations,
+        }
+      }
+    }
+
+    // thêm interests/behaviors vào flexible_spec
+    const flexAdd: any = {};
+    if (Array.isArray(plan.add_interests) && plan.add_interests.length > 0) {
+      flexAdd.interests = plan.add_interests.filter((i: any) => i?.id && i?.name);
+    }
+    if (Array.isArray(plan.add_behaviors) && plan.add_behaviors.length > 0) {
+      flexAdd.behaviors = plan.add_behaviors.filter((b: any) => b?.id);
+    }
+    if (Object.keys(flexAdd).length) this.mergeFlex(t, flexAdd);
+
+    if (plan.exclusions && typeof plan.exclusions === 'object') {
+      t.exclusions = { ...(t.exclusions || {}), ...plan.exclusions };
+    }
+    return this.normalizeTargetingForCreation(t);
   }
-  private sleep(ms: number) {
-    return new Promise(r => setTimeout(r, ms));
+
+  // 4) Update ad set (pause → update → resume)
+  private async updateAdsetTargetingAndBudget(args: {
+    fb: any; adsetId: string; newTargeting: TargetingSpec; budget?: { increase_percent?: number; set_daily_budget?: number };
+  }) {
+    const { fb, adsetId, newTargeting, budget } = args;
+    const { data: cur } = await fb.get(`/${adsetId}`, { params: { fields: 'id,status,daily_budget' } });
+    const wasActive = cur?.status === 'ACTIVE';
+    if (wasActive) await fb.post(`/${adsetId}`, qs.stringify({ status: 'PAUSED' }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+
+    const payload: any = { targeting: JSON.stringify(this.normalizeTargetingForCreation(newTargeting)) };
+    if (budget) {
+      if (typeof budget.set_daily_budget === 'number') {
+        payload.daily_budget = `${Math.round(budget.set_daily_budget)}`;
+      } else if (typeof budget.increase_percent === 'number' && cur?.daily_budget) {
+        const old = Number(cur.daily_budget);
+        const inc = Math.round(old * (1 + budget.increase_percent / 100));
+        payload.daily_budget = `${inc}`;
+      }
+    }
+    await fb.post(`/${adsetId}`, qs.stringify(payload), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+    if (wasActive) await fb.post(`/${adsetId}`, qs.stringify({ status: 'ACTIVE' }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+
+    return payload;
+  }
+
+  // 5) (Tuỳ) tạo A/B creative cho mục tiêu nhắn tin
+  private async abTestNewMessageAds(args: {
+    fb: any; adAccountId: string; pageId?: string | null; adsetId: string; oldAdId?: string;
+    variants: Array<{ name: string; primaryText: string; imageHash?: string }>;
+  }) {
+    const { fb, adAccountId, pageId, adsetId, oldAdId, variants } = args;
+    if (oldAdId) { try { await fb.post(`/${oldAdId}`, qs.stringify({ status: 'PAUSED' }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }); } catch { } }
+    const created: any[] = [];
+    for (const v of variants) {
+      const creative = await fb.post(`/${adAccountId}/adcreatives`,
+        qs.stringify({
+          name: `[A/B] ${v.name}`,
+          object_story_spec: JSON.stringify({
+            page_id: pageId,
+            link_data: { image_hash: v.imageHash, message: v.primaryText, call_to_action: { type: 'MESSAGE_PAGE' } }
+          })
+        }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      const ad = await fb.post(`/${adAccountId}/ads`,
+        qs.stringify({
+          name: v.name,
+          adset_id: adsetId,
+          creative: JSON.stringify({ creative_id: (creative.data?.id || creative?.id) }),
+          status: 'ACTIVE'
+        }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      created.push({ ad_id: (ad.data?.id || ad?.id), creative_id: (creative.data?.id || creative?.id), name: v.name });
+    }
+    return created;
+  }
+
+  // 6) Áp plan lên FB
+  // private async applyFromAdInsight(adInsight: AdInsight) {
+  //   const plan = this.extractPlanFromAdInsight(adInsight);
+  //   if (!plan) throw new BadRequestException(`Không tìm thấy kế hoạch tối ưu trong AdInsight (engagementDetails/recommendation/htmlReport).`);
+  //   if (!adInsight.adId) throw new BadRequestException(`AdInsight thiếu adId.`);
+
+  //   const { fb, ad, adset, adAccountId, pageId } = await this.getAdContextByAdId(
+  //     adInsight.adId,
+  //     { userId: adInsight.userId || null, email: adInsight.createdByEmail || null }
+  //   );
+
+  //   const newTargeting = this.mergeTargeting(adset?.effective_targeting || adset?.targeting || {}, plan);
+  //   const updatePayload = await this.updateAdsetTargetingAndBudget({
+  //     fb,
+  //     adsetId: ad.adset_id,
+  //     newTargeting,
+  //     budget: plan.budget
+  //   });
+
+  //   let createdAds: any[] = [];
+  //   if (plan.ab_test?.variants?.length && adAccountId) {
+  //     createdAds = await this.abTestNewMessageAds({
+  //       fb,
+  //       adAccountId,
+  //       pageId,
+  //       adsetId: ad.adset_id,
+  //       oldAdId: plan.ab_test.pause_old_ad ? ad.id : undefined,
+  //       variants: plan.ab_test.variants
+  //     });
+  //   }
+
+  //   return {
+  //     adId: ad.id,
+  //     adsetId: ad.adset_id,
+  //     applied: { targeting: true, budget: !!plan.budget, ab_test_created: createdAds.length },
+  //     details: { updatePayload, createdAds, plan }
+  //   };
+  // }
+
+  // ====== tiện ích ======
+  private uniq<T>(arr: T[]): T[] { return Array.from(new Set(arr)); }
+  private sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+
+  // =============== Insights & listing ===============
+
+  // Helper render vị trí ưu tiên custom_locations trước
+  private renderLocationSummary(tg: any) {
+    const geo = tg?.geo_locations || {};
+    if (Array.isArray(geo.custom_locations) && geo.custom_locations.length) {
+      const items = geo.custom_locations
+        .slice(0, 3)
+        .map((loc: any) => {
+          const lat = Number(loc.latitude);
+          const lng = Number(loc.longitude);
+          const radius = Number(loc.radius);
+          const unit = String(loc.distance_unit || 'mile');
+          const latStr = Number.isFinite(lat) ? lat.toFixed(4) : '?';
+          const lngStr = Number.isFinite(lng) ? lng.toFixed(4) : '?';
+          const rStr = Number.isFinite(radius) ? `${radius} ${unit}` : '';
+          return `${latStr},${lngStr}${rStr ? ` (${rStr})` : ''}`;
+        });
+      return { type: 'custom_locations', text: items.join(' • '), raw: geo.custom_locations };
+    }
+
+    if (Array.isArray(geo.cities) && geo.cities.length) {
+      const items = geo.cities.slice(0, 3).map((c: any) => c?.name || c?.key || 'City');
+      return { type: 'cities', text: items.join(' • '), raw: geo.cities };
+    }
+
+    if (Array.isArray(geo.countries) && geo.countries.length) {
+      return { type: 'countries', text: geo.countries.slice(0, 5).join(', '), raw: geo.countries };
+    }
+
+    return { type: 'none', text: 'Không giới hạn', raw: null };
   }
 
   private async fetchCampaignInsights(args: {
@@ -1034,7 +1328,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
     fb: AxiosInstance;
     datePreset: string;
   }) {
-    const { apiVersion, adAccountId, fb, datePreset } = args;
+    const { adAccountId, fb, datePreset } = args;
     const base = `/${adAccountId}/insights`;
     const params = new URLSearchParams({
       level: 'campaign',
@@ -1068,13 +1362,9 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
     return rows;
   }
 
-  private async fetchAdsetTargetingBatch(args: {
-    apiVersion: string;
-    fb: AxiosInstance;
-    adsetIds: string[];
-  }) {
+  private async fetchAdsetTargetingBatch(args: { apiVersion: string; fb: AxiosInstance; adsetIds: string[]; }) {
     const { fb, adsetIds } = args;
-    const out: Record<string, any> = {};
+    const out: Record<string, { effective?: any; raw?: any }> = {};
     const ids = [...adsetIds];
     const CONCURRENCY = 4;
 
@@ -1082,12 +1372,12 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
       while (ids.length) {
         const id = ids.shift()!;
         try {
-          this.logger.log(`STEP fetchAdsetTargeting → GET /${id}?fields=id,name,targeting`)
-          const { data } = await fb.get(`/${id}`, { params: { fields: 'id,name,targeting' }, timeout: 30_000 });
-          out[id] = data?.targeting ?? null;
+          this.logger.log(`STEP fetchAdsetTargeting → GET /${id}?fields=id,name,effective_targeting,targeting`)
+          const { data } = await fb.get(`/${id}`, { params: { fields: 'id,name,effective_targeting,targeting' }, timeout: 30_000 });
+          out[id] = { effective: data?.effective_targeting ?? null, raw: data?.targeting ?? null };
         } catch (e: any) {
           this.logger.error(`fetchAdsetTargetingBatch error ${id}: ${JSON.stringify(e?.response?.data || e)}`);
-          out[id] = null;
+          out[id] = { effective: null, raw: null };
         }
         await this.sleep(120);
       }
@@ -1098,8 +1388,6 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
   }
 
   async listAds(opts: ListOpts = {}, config: any) {
-    console.log(`config for listAds: `, config);
-
     const { apiVersion: vEnv, adAccountId, accessTokenUser, cookie } = config;
     const apiVersion = opts.apiVersion || vEnv;
     const fb = this.fb(accessTokenUser, cookie, apiVersion)
@@ -1148,8 +1436,6 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
         return { count: 0, items: [], top3Campaigns: [] };
       }
 
-      console.log(`Fetched total ${all.length} ads`, all.slice(0, 2));
-
       const campaignIds = this.uniq(all.map(a => a.campaign_id).filter(Boolean));
       if (!campaignIds.length) {
         this.logger.log(`STEP listAds: no campaign ids`)
@@ -1196,13 +1482,8 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
           }
 
           const proas = (r.purchase_roas ?? []).find((p: any) => p.action_type === 'purchase');
-          if (proas && proas.value != null && !Number.isNaN(Number(proas.value))) {
-            roasVals.push(Number(proas.value));
-          }
-
-          if (r.ctr != null && !Number.isNaN(Number(r.ctr))) {
-            ctrVals.push(Number(r.ctr));
-          }
+          if (proas && proas.value != null && !Number.isNaN(Number(proas.value))) roasVals.push(Number(proas.value));
+          if (r.ctr != null && !Number.isNaN(Number(r.ctr))) ctrVals.push(Number(r.ctr));
         }
 
         const avgROAS = roasVals.length ? (roasVals.reduce((a, b) => a + b, 0) / roasVals.length) : null;
@@ -1210,20 +1491,11 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
         const cpl = leads > 0 ? (spend / leads) : null;
 
         let metric: number | null = null;
-        if (rankBy === 'roas') {
-          metric = avgROAS ?? (avgCTR ?? 0);
-        } else if (rankBy === 'cpl') {
-          metric = cpl != null ? -cpl : (avgCTR != null ? avgCTR : 0);
-        } else if (rankBy === 'ctr') {
-          metric = avgCTR ?? 0;
-        }
+        if (rankBy === 'roas') metric = avgROAS ?? (avgCTR ?? 0);
+        else if (rankBy === 'cpl') metric = cpl != null ? -cpl : (avgCTR != null ? avgCTR : 0);
+        else if (rankBy === 'ctr') metric = avgCTR ?? 0;
 
-        scored.push({
-          campaign_id: campId,
-          campaign_name: name,
-          metric: metric ?? 0,
-          meta: { avg_roas: avgROAS, cpl, ctr: avgCTR, spend },
-        });
+        scored.push({ campaign_id: campId, campaign_name: name, metric: metric ?? 0, meta: { avg_roas: avgROAS, cpl, ctr: avgCTR, spend } });
       }
 
       const top3 = scored.sort((a, b) => b.metric - a.metric).slice(0, 3);
@@ -1238,11 +1510,72 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
       );
 
       this.logger.log(`STEP listAds: fetch adset targeting for ${adsetsOfTop.length} adsets`)
-      const adsetTargeting = await this.fetchAdsetTargetingBatch({
-        apiVersion,
-        fb,
-        adsetIds: adsetsOfTop,
-      });
+      const adsetTargeting = await this.fetchAdsetTargetingBatch({ apiVersion, fb, adsetIds: adsetsOfTop });
+
+      // summarizeTargeting có thêm custom_locations
+      const summarizeTargeting = (items: Array<{ targeting: any }>) => {
+        const countries = new Set<string>();
+        const cities: Array<{ key: string; name?: string }> = [];
+        const customLocs: Array<{ lat: number; lng: number; radius: number; unit: string }> = [];
+        const age = { min: Infinity, max: -Infinity };
+        const genders = new Set<number>();
+        const interestMap = new Map<string, string>();
+
+        const collect = (tg: any) => {
+          if (!tg) return;
+          const geo = tg.geo_locations || {};
+          (geo.countries || []).forEach((c: string) => countries.add(c));
+          (geo.cities || []).forEach((c: any) => cities.push({ key: String(c.key ?? c.name ?? ''), name: c.name }));
+
+          // custom_locations
+          if (Array.isArray(geo.custom_locations)) {
+            for (const loc of geo.custom_locations) {
+              const lat = Number(loc.latitude);
+              const lng = Number(loc.longitude);
+              const radius = Number(loc.radius);
+              const unit = String(loc.distance_unit || 'mile');
+              if (!Number.isNaN(lat) && !Number.isNaN(lng) && !Number.isNaN(radius)) {
+                customLocs.push({ lat, lng, radius, unit });
+              }
+            }
+          }
+
+          if (typeof tg.age_min === 'number') age.min = Math.min(age.min, tg.age_min);
+          if (typeof tg.age_max === 'number') age.max = Math.max(age.max, tg.age_max);
+          (tg.genders || []).forEach((g: number) => genders.add(g));
+
+          // root interests + flexible_spec interests
+          if (Array.isArray(tg.interests)) {
+            tg.interests.forEach((i: any) => {
+              const id = String(i?.id ?? ''); if (id) interestMap.set(id, i.name || id);
+            });
+          }
+          if (Array.isArray(tg.flexible_spec)) {
+            for (const fs of tg.flexible_spec) {
+              if (Array.isArray(fs?.interests)) {
+                fs.interests.forEach((i: any) => {
+                  const id = String(i?.id ?? ''); if (id) interestMap.set(id, i.name || id);
+                });
+              }
+            }
+          }
+        };
+
+        for (const it of items) {
+          const tgt = (it as any).targeting;
+          collect(tgt?.effective || tgt?.raw || tgt);
+        }
+
+        return {
+          countries: Array.from(countries),
+          cities: cities.slice(0, 10),
+          custom_locations: customLocs.slice(0, 10),
+          age_min: age.min === Infinity ? null : age.min,
+          age_max: age.max === -Infinity ? null : age.max,
+          genders: Array.from(genders),
+          interests: Array.from(interestMap).slice(0, 15).map(([id, name]) => ({ id, name })),
+        };
+      };
 
       const adsetsByCamp: Record<string, Array<{ adset_id: string; targeting: any }>> = {};
       for (const a of all) {
@@ -1255,50 +1588,39 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
         }
       }
 
-      const summarizeTargeting = (items: Array<{ targeting: any }>) => {
-        const countries = new Set<string>();
-        const cities: Array<{ key: string; name?: string }> = [];
-        const age = { min: Infinity, max: -Infinity };
-        const genders = new Set<number>();
-        const interests = new Map<string, string>();
-        for (const it of items) {
-          const tg = it.targeting || {};
-          const geo = tg.geo_locations || {};
-          (geo.countries || []).forEach((c: string) => countries.add(c));
-          (geo.cities || []).forEach((c: any) => cities.push({ key: String(c.key), name: c.name }));
-          if (typeof tg.age_min === 'number') age.min = Math.min(age.min, tg.age_min);
-          if (typeof tg.age_max === 'number') age.max = Math.max(age.max, tg.age_max);
-          (tg.genders || []).forEach((g: number) => genders.add(g));
-          (tg.interests || []).forEach((i: any) => {
-            const id = String(i.id ?? '');
-            if (id) interests.set(id, i.name || id);
-          });
-        }
-        return {
-          countries: Array.from(countries),
-          cities: cities.slice(0, 10),
-          age_min: age.min === Infinity ? null : age.min,
-          age_max: age.max === -Infinity ? null : age.max,
-          genders: Array.from(genders),
-          interests: Array.from(interests).slice(0, 15).map(([id, name]) => ({ id, name })),
-        };
-      };
-
       const top3Campaigns = top3.map(x => {
         const adsets = adsetsByCamp[x.campaign_id] || [];
+        const summary = summarizeTargeting(adsets);
+
+        // Dựng chuỗi hiển thị vị trí có ưu tiên custom_locations
+        let locationText = 'Không giới hạn';
+        if (summary.custom_locations?.length) {
+          locationText = summary.custom_locations
+            .slice(0, 3)
+            .map((l) => `${l.lat.toFixed(4)},${l.lng.toFixed(4)} (${l.radius} ${l.unit})`)
+            .join(' • ');
+        } else if (summary.cities?.length) {
+          locationText = summary.cities.slice(0, 3).map(c => c.name || c.key).join(' • ');
+        } else if (summary.countries?.length) {
+          locationText = summary.countries.slice(0, 5).join(', ');
+        }
+
         return {
           campaign_id: x.campaign_id,
           campaign_name: x.campaign_name,
           metric_used: rankBy,
           metric_value: x.metric,
           performance: x.meta,
-          targeting_summary: summarizeTargeting(adsets),
+          targeting_summary: {
+            ...summary,
+            location_text: locationText,
+          },
           adsets,
         };
       });
 
       this.logger.log(`STEP listAds DONE: total=${all.length} top3=${top3.length}`)
-      return { count: all.length, items: top3, top3Campaigns };
+      return { count: all.length, items: all, top3Campaigns };
 
     } catch (err: any) {
       const apiErr = err?.response?.data || err;
@@ -1307,6 +1629,7 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
     }
   }
 
+  // =============== Pause/Status ===============
   private async pauseAd(adId: string, fb: AxiosInstance) {
     try {
       this.logger.log(`STEP pauseAd → POST /${adId}`)
@@ -1323,28 +1646,19 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
     }
   }
 
-  async setAdStatus(params: {
-    adId: string;
-    isActive: boolean;
-    user: User;
-    dto0?: AnyDto;
-  }) {
+  async setAdStatus(params: { adId: string; isActive: boolean; user: User; dto0?: AnyDto; }) {
     const { adId, isActive, user, dto0 } = params;
 
     try {
       this.logger.log(`STEP setAdStatus: adId=${adId} → ${isActive ? 'ACTIVE' : 'PAUSED'}`)
 
       const dto = (dto0 ?? {}) as AnyDto
-      this.logger.log(`STEP 0: Input DTO & user loaded`)
       const userData = await this.userRepo.findOne({ where: { email: user.email } })
       if (!userData) throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`)
 
       const { accessTokenUser, accountAdsId: adAccountId, idPage: pageId, cookie: rawCookie } = userData
       if (!accessTokenUser) throw new BadRequestException(`Người dùng chưa liên kết Facebook hoặc thiếu accessTokenUser.`)
       if (!adAccountId) throw new BadRequestException(`Người dùng chưa có accountAdsId. Vui lòng kiểm tra lại.`)
-      if (!pageId && dto.goal !== AdsGoal.LEADS) {
-        this.logger.warn(`User chưa liên kết Fanpage (idPage) – vẫn tiếp tục do chỉ đổi trạng thái ad.`)
-      }
 
       const fb = this.fb(accessTokenUser, rawCookie, 'v23.0')
 
@@ -1353,25 +1667,16 @@ private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'For
 
       try {
         const rec = await this.facebookAdRepo.findOne({ where: { adId } })
-        if (rec) {
-          rec.status = isActive ? 'ACTIVE' : 'PAUSED'
-          await this.facebookAdRepo.save(rec)
-        }
+        if (rec) { rec.status = isActive ? 'ACTIVE' : 'PAUSED'; await this.facebookAdRepo.save(rec) }
       } catch (e) {
         this.logger.warn(`DB update status warning for adId=${adId}: ${e?.message || e}`)
       }
 
-      return {
-        success: true,
-        adId,
-        status: isActive ? 'ACTIVE' : 'PAUSED',
-        message: isActive ? 'Đã bật quảng cáo' : 'Đã tắt quảng cáo',
-      }
+      return { success: true, adId, status: isActive ? 'ACTIVE' : 'PAUSED', message: isActive ? 'Đã bật quảng cáo' : 'Đã tắt quảng cáo' }
     } catch (error: any) {
       const message = error?.response?.data?.error?.error_user_msg || error.message
       this.logger.error('❌ setAdStatus failed:', error?.response?.data || error)
       throw new BadRequestException(`Cập nhật trạng thái quảng cáo thất bại: ${message}`)
     }
   }
-
 }

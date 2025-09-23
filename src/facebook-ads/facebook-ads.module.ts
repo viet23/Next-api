@@ -9,10 +9,12 @@ import { CqrsModule } from '@nestjs/cqrs'
 import { FacebookAd } from '@models/facebook-ad.entity'
 import { AdInsight } from '@models/ad-insight.entity'
 import { FacebookPostModule } from 'src/facebook-post/facebook-post.module'
+import { FacebookAdsUpdateService } from './facebook-ads-update.service'
+import { AiPlannerService } from './ai-planner.service'
 
 @Module({
   imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd,AdInsight]), CqrsModule,FacebookPostModule],
-  providers: [FacebookAdsService],
+  providers: [FacebookAdsService , AiPlannerService, FacebookAdsUpdateService],
   controllers: [FacebookAdsController],
   exports: [FacebookAdsService],
 })

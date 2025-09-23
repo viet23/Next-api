@@ -35,3 +35,80 @@ export enum GenderEnum {
   FEMALE = 'Nữ',
   OTHER = 'OTHER',
 }
+
+// plan.schema.ts
+export const TARGETING_PLAN_SCHEMA = {
+  name: "fb_targeting_plan",
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      set_auto_placements: { type: "boolean" },
+      expand_audience: { type: "boolean" },               // Advantage audience / targeting expansion
+      add_interests: {
+        type: "array",
+        items: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            id: { type: "string" },                       // ưu tiên có id; nếu không có, chỉ name
+            name: { type: "string" }
+          },
+          additionalProperties: false
+        }
+      },
+      age_range: {
+        type: "object",
+        properties: {
+          min: { type: "integer", minimum: 13, maximum: 65 },
+          max: { type: "integer", minimum: 13, maximum: 65 }
+        },
+        additionalProperties: false
+      },
+      genders: { type: "array", items: { type: "integer", enum: [0, 1, 2] }, maxItems: 2 },
+      locales: { type: "array", items: { type: "integer" }, maxItems: 8 },
+      geo: {
+        type: "object",
+        properties: {
+          countries: { type: "array", items: { type: "string" } },
+          regions:   { type: "array", items: { type: "string" } },
+          cities:    { type: "array", items: { type: "string" } },
+          location_types: { type: "array", items: { type: "string" } }
+        },
+        additionalProperties: false
+      },
+      exclusions: { type: "object" },                      // giữ mở để FB chấp nhận
+      budget: {
+        type: "object",
+        properties: {
+          increase_percent: { type: "number", minimum: 0, maximum: 100 },
+          set_daily_budget: { type: "number", minimum: 0 }
+        },
+        additionalProperties: false
+      },
+      ab_test: {
+        type: "object",
+        properties: {
+          pause_old_ad: { type: "boolean" },
+          variants: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["name", "primaryText"],
+              properties: {
+                name: { type: "string" },
+                primaryText: { type: "string" },
+                imageHash: { type: "string" }
+              },
+              additionalProperties: false
+            },
+            minItems: 1, maxItems: 4
+          }
+        },
+        additionalProperties: false
+      }
+    },
+    required: [],
+  }
+} as const;
+

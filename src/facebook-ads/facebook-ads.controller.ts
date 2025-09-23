@@ -8,6 +8,7 @@ import { Authen } from '@decorators/authen.decorator'
 import { AdInsightUpdateDTO } from './dto/ads-update.dto'
 import { FacebookPostService } from 'src/facebook-post/facebook-post.service'
 import { UpdateAdStatusDto } from './dto/update-ad-status.dto'
+import { FacebookAdsUpdateService } from './facebook-ads-update.service'
 
 
 @ApiTags('facebook-ads')
@@ -16,11 +17,14 @@ export class FacebookAdsController {
   constructor(
     private readonly fbService: FacebookAdsService,
     private readonly fbpostService: FacebookPostService,
+    private readonly fbAdsUpdate: FacebookAdsUpdateService
   ) { }
 
   @Post('create')
   @UseGuards(JwtAuthGuard)
   createAd(@Body() dto: CreateFacebookAdDto, @Authen() user: User) {
+    console.log(`dto`, dto, user);
+    
     return this.fbService.createFacebookAd(dto, user)
   }
 
@@ -29,7 +33,7 @@ export class FacebookAdsController {
   @ApiParam({ name: 'id' })
   async updateflag(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AdInsightUpdateDTO): Promise<Partial<any>> {
     console.log(`id`, id, dto);
-    return this.fbService.updateAdInsight(id, dto)
+    return this.fbAdsUpdate.updateAdInsight(id, dto)
   }
 
   @Get()

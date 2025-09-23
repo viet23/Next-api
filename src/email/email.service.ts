@@ -12,8 +12,15 @@ import { CreditTransaction } from '@models/credit-ransaction .entity'
 import { AdInsight } from '@models/ad-insight.entity'
 import crypto from 'node:crypto'
 
-const formatCurrency = (v) => Number(v).toLocaleString('en-US') // 1,234,567
-const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
+const formatCurrency = (v: any) => Number(v).toLocaleString('en-US') // 1,234,567
+const format2 = (v: any) => Number(v).toFixed(2) // 2 chữ số thập phân
+
+type AIReturn = {
+  danh_gia: { chi_so: string; muc: 'Tốt' | 'Trung bình' | 'Kém'; nhan_xet: string }[];
+  tong_quan: string;
+  goi_y: string[];
+  targeting_goi_y?: string[]; // NEW: gợi ý riêng cho targeting
+};
 
 @Injectable()
 export class EmailService {
@@ -26,6 +33,7 @@ export class EmailService {
     private readonly facebookAdRepo: Repository<FacebookAd>,
   ) { }
 
+  // NOTE: vẫn giữ nguyên transporter như cũ (khuyến nghị: dùng app password qua env)
   private transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -36,7 +44,6 @@ export class EmailService {
 
   async sendMailPassword({ to, subject, html }: { to: string; subject: string; html: string }) {
     console.log(`Sending email to: ${to}, subject: ${subject}`);
-
     return this.transporter.sendMail({
       from: '2203viettt@gmail.com',
       to,
@@ -46,9 +53,7 @@ export class EmailService {
   }
 
   async sendCredits(data: any, user: User) {
-    // const { fullName, email, phone, zalo } = data
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
-
     console.log(`data`, data);
 
     const mailOptions = {
@@ -71,10 +76,9 @@ export class EmailService {
       transaction.amountPaidVnd = data.vnd || 179000
       transaction.creditsPurchased = data.credits || 500
       transaction.code = `${data.vnd}vnd-${data.credits}-credits`
-      transaction.updatedById = userData.id.toString() // ID của người yêu cầu thanh toán
+      transaction.updatedById = userData.id.toString()
 
       await this.creditRepo.save(transaction)
-
       return { success: true, messageId: info.messageId }
     } catch (error) {
       console.error('Lỗi gửi mail:', error)
@@ -83,18 +87,13 @@ export class EmailService {
   }
 
   async sendPlan(data: any, user: User) {
-    // Lấy thông tin user trong DB
     const userData = await this.userRepo.findOne({
       where: { email: user.email },
     });
-
-    if (!userData) {
-      throw new Error("Không tìm thấy thông tin người dùng");
-    }
+    if (!userData) throw new Error("Không tìm thấy thông tin người dùng");
 
     console.log(`data`, data);
 
-    // Email thông báo admin
     const mailOptions = {
       from: "2203viettt@gmail.com",
       to: "nextadsai@gmail.com",
@@ -109,15 +108,12 @@ export class EmailService {
       <h4>Thông tin gói đăng ký:</h4>
       <p><strong>Tên gói:</strong> ${data.name}</p>
       <p><strong>Số tháng:</strong> ${data.months || 1}</p>
-      <p><strong>Ngày bắt đầu:</strong> ${data.startDate ? new Date(data.startDate).toLocaleDateString("vi-VN") : new Date().toLocaleDateString("vi-VN")
-        }</p>
-      <p><strong>Ngày kết thúc:</strong> ${data.endDate ? new Date(data.endDate).toLocaleDateString("vi-VN") : new Date().toLocaleDateString("vi-VN")
-        }</p>
+      <p><strong>Ngày bắt đầu:</strong> ${data.startDate ? new Date(data.startDate).toLocaleDateString("vi-VN") : new Date().toLocaleDateString("vi-VN")}</p>
+      <p><strong>Ngày kết thúc:</strong> ${data.endDate ? new Date(data.endDate).toLocaleDateString("vi-VN") : new Date().toLocaleDateString("vi-VN")}</p>
     `,
     };
 
     try {
-      // Gửi email
       const info = await this.transporter.sendMail(mailOptions);
       return { success: true, messageId: info.messageId };
     } catch (error) {
@@ -126,10 +122,8 @@ export class EmailService {
     }
   }
 
-
   async sendFormEmail(data: CreateEmailDto) {
     const { fullName, email, phone, zalo } = data
-
     const mailOptions = {
       from: '2203viettt@gmail.com',
       to: 'nextadsai@gmail.com',
@@ -152,8 +146,159 @@ export class EmailService {
     }
   }
 
+  /** Helper: tóm tắt targeting gọn cho email & prompt */
+  private summarizeTargeting(t: any) {
+    if (!t) return { summary: 'Không có dữ liệu targeting.', lines: [], raw: null };
+
+    // Facebook: 1=Nam, 2=Nữ
+    const genderMap: Record<number, string> = { 1: 'Nam', 2: 'Nữ' };
+    const genders =
+      Array.isArray(t.genders) && t.genders.length
+        ? t.genders.map((g: number) => genderMap[g] ?? String(g)).join(', ')
+        : 'Không giới hạn';
+
+    const age =
+      t.age_min || t.age_max ? `${t.age_min || 13}–${t.age_max || 65}+` : 'Không giới hạn';
+
+    const loc = t.geo_locations || {};
+
+    // ƯU TIÊN: đọc custom_locations (lat/lng + radius mi) để tránh báo "Không giới hạn"
+    const customLocs: string[] = Array.isArray(loc.custom_locations)
+      ? loc.custom_locations.slice(0, 3).map((c: any) => {
+          const lat = Number(c.latitude);
+          const lng = Number(c.longitude);
+          const r  = Number(c.radius);
+          const unit = String(c.distance_unit || 'mile'); // Graph trả 'mile'
+          const latStr = Number.isFinite(lat) ? lat.toFixed(4) : '?';
+          const lngStr = Number.isFinite(lng) ? lng.toFixed(4) : '?';
+
+          // Hiển thị thêm km cho dễ đọc
+          const radiusMi = Number.isFinite(r) ? r : NaN;
+          const radiusKm = Number.isFinite(radiusMi) ? (unit === 'mile' ? radiusMi * 1.609 : radiusMi) : NaN;
+          const radiusTxt =
+            Number.isFinite(radiusMi)
+              ? unit === 'mile'
+                ? `${radiusMi} mi (~${radiusKm.toFixed(1)} km)`
+                : `${radiusKm.toFixed(1)} km`
+              : '';
+
+          return `${latStr},${lngStr}${radiusTxt ? ` (${radiusTxt})` : ''}`;
+        })
+      : [];
+
+    const countries =
+      Array.isArray(loc.countries) && loc.countries.length ? loc.countries.join(', ') : null;
+
+    const cities =
+      Array.isArray(loc.cities) && loc.cities.length
+        ? loc.cities
+            .slice(0, 3)
+            .map((c: any) =>
+              `${c.name || c.key}${
+                c.distance_unit && c.radius ? ` (+${c.radius}${c.distance_unit})` : ''
+              }`,
+            )
+            .join(' • ')
+        : null;
+
+    const regions =
+      Array.isArray(loc.regions) && loc.regions.length
+        ? loc.regions.map((r: any) => r.name || r.key).slice(0, 3).join(' • ')
+        : null;
+
+    // Thứ tự ưu tiên hiển thị: custom_locations → cities → countries/regions
+    const locationStr =
+      (customLocs.length && customLocs.join(' • ')) ||
+      cities ||
+      [countries, regions].filter(Boolean).join(' | ') ||
+      'Không giới hạn';
+
+    // Interests / Behaviors (đọc từ flexible_spec; có thể đọc thêm root.interests nếu có)
+    const interestsFromFlex: string[] = (Array.isArray(t.flexible_spec) ? t.flexible_spec : [])
+      .flatMap((spec: any) =>
+        Array.isArray(spec.interests) ? spec.interests.map((i: any) => i.name) : [],
+      );
+    const interestsRoot: string[] = Array.isArray(t.interests)
+      ? t.interests.map((i: any) => i?.name || i)
+      : [];
+    const interests = [...interestsFromFlex, ...interestsRoot];
+
+    const behaviors: string[] = (Array.isArray(t.flexible_spec) ? t.flexible_spec : [])
+      .flatMap((spec: any) =>
+        Array.isArray(spec.behaviors) ? spec.behaviors.map((b: any) => b.name) : [],
+      );
+
+    const exclusions: string[] = Array.isArray(t.exclusions?.interests)
+      ? t.exclusions.interests.map((i: any) => i.name)
+      : [];
+
+    const placementDetail = (() => {
+      const platforms = Array.isArray(t.publisher_platforms) ? t.publisher_platforms.join(', ') : '';
+      const pos =
+        (Array.isArray(t.instagram_positions) && t.instagram_positions.length
+          ? t.instagram_positions
+          : Array.isArray(t.facebook_positions) && t.facebook_positions.length
+          ? t.facebook_positions
+          : t.positions || []) || [];
+      return pos.length ? `${platforms || '—'} / ${pos.join(', ')}` : platforms || 'Tự động';
+    })();
+
+    const lines: string[] = [
+      `• Độ tuổi: ${age}`,
+      `• Giới tính: ${genders}`,
+      `• Vị trí: ${locationStr}`,
+      `• Sở thích (top): ${interests.slice(0, 10).join(', ') || '—'}`,
+      behaviors.length ? `• Hành vi: ${behaviors.slice(0, 10).join(', ')}` : '',
+      exclusions.length ? `• Loại trừ: ${exclusions.slice(0, 10).join(', ')}` : '',
+      `• Vị trí hiển thị: ${placementDetail}`,
+    ].filter(Boolean);
+
+    return {
+      summary: `Độ tuổi ${age}; ${genders.toLowerCase()}; vị trí ${locationStr.toLowerCase()}; ${interests.length ? `có ${interests.length} interest` : 'không set interest'}, ${behaviors.length ? `${behaviors.length} behavior` : 'không set behavior'}.`,
+      lines,
+      raw: t,
+    };
+  }
+
+  /** Helper: render bảng đánh giá */
+  private renderEvalTable(r: AIReturn | null) {
+    if (!r?.danh_gia?.length) return '<p>Không có đánh giá từ AI.</p>';
+    const badge = (muc: string) => {
+      switch (muc) {
+        case 'Kém': return `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:999px;font-weight:600;">Kém</span>`;
+        case 'Trung bình': return `<span style="background:#fef9c3;color:#a16207;padding:2px 8px;border-radius:999px;font-weight:600;">Trung bình</span>`;
+        default: return `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:999px;font-weight:600;">Tốt</span>`;
+      }
+    };
+    const rows = r.danh_gia.map(d =>
+      `<tr>
+        <td style="padding:8px;border:1px solid #eee;">${d.chi_so}</td>
+        <td style="padding:8px;border:1px solid #eee;">${badge(d.muc)}</td>
+        <td style="padding:8px;border:1px solid #eee;">${d.nhan_xet}</td>
+      </tr>`
+    ).join('');
+    return `
+      <table style="border-collapse:collapse;width:100%;margin-top:6px;">
+        <thead>
+          <tr style="background:#f9fafb;">
+            <th style="text-align:left;padding:8px;border:1px solid #eee;">Chỉ số</th>
+            <th style="text-align:left;padding:8px;border:1px solid #eee;">Mức</th>
+            <th style="text-align:left;padding:8px;border:1px solid #eee;">Nhận xét</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  /** Helper: render bullets */
+  private renderTips(items?: string[]) {
+    if (!items || !items.length) return '<p>Không có gợi ý.</p>';
+    const li = items.map(g => `<li>${g}</li>`).join('');
+    return `<ul style="padding-left:18px;margin:6px 0 0 0;">${li}</ul>`;
+  }
+
   @Cron('0 9 * * *', {
-    timeZone: 'Asia/Ho_Chi_Minh', // ⏰ đúng giờ VN
+    timeZone: 'Asia/Ho_Chi_Minh',
   })
   // @Cron('*/30 * * * * *')
   async reportAdInsights() {
@@ -179,23 +324,21 @@ export class EmailService {
 
     for (const ad of ads) {
       try {
-        // ====== ÉP GỬI COOKIE + (tuỳ chọn) APP SECRET PROOF ======
+        // ====== Auth headers (Cookie + Bearer) + appsecret_proof ======
         const token = ad.createdBy?.accessTokenUser as string | undefined
-        const rawCookie = ad.createdBy?.cookie as string | undefined // "c_user=...; xs=...; fr=..."
+        const rawCookie = ad.createdBy?.cookie as string | undefined
 
-        // Header chung: chỉ server (NestJS) mới gửi được Cookie
         const headers: Record<string, string> = { Accept: 'application/json' }
         if (rawCookie) headers.Cookie = rawCookie
         if (token) headers.Authorization = `Bearer ${token}`
 
-        // Nếu app bật appsecret_proof trong cài đặt, tính proof để thêm vào params
         const appsecret = process.env.FB_APP_SECRET
         const appsecret_proof =
           token && appsecret
             ? crypto.createHmac('sha256', appsecret).update(token).digest('hex')
             : undefined
 
-        // 1) Lấy insights từ FB Graph (ép Cookie trong headers)
+        // 1) Insights
         const fbRes = await axios.get(`https://graph.facebook.com/v19.0/${ad.adId}/insights`, {
           params: {
             fields: [
@@ -217,8 +360,6 @@ export class EmailService {
             ].join(','),
             date_preset: 'maximum',
             ...(appsecret_proof ? { appsecret_proof } : {}),
-            // Không truyền access_token trong params nữa khi đã có Authorization header (an toàn log hơn).
-            // Nếu bạn muốn vẫn truyền query cho chắc: thêm access_token: token
           },
           headers,
           timeout: 20000,
@@ -228,6 +369,25 @@ export class EmailService {
         if (!data) {
           this.logger.warn(`⚠️ Không có dữ liệu insights cho quảng cáo ${ad.adId}`);
           continue;
+        }
+
+        // 1b) Targeting
+        let targeting: any = null;
+        try {
+          const fbTargetingRes = await axios.get(
+            `https://graph.facebook.com/v19.0/${ad.adId}`,
+            {
+              params: {
+                fields: 'targeting,name',
+                ...(appsecret_proof ? { appsecret_proof } : {}),
+              },
+              headers,
+              timeout: 20000,
+            }
+          );
+          targeting = fbTargetingRes.data?.targeting || null;
+        } catch (tErr: any) {
+          this.logger.warn(`⚠️ Không lấy được targeting cho ad ${ad.adId}: ${tErr.message}`);
         }
 
         // 2) Helper format
@@ -246,24 +406,23 @@ export class EmailService {
         const clicks = toNum(data.clicks);
         const inlineLinkClicks = toNum(data.inline_link_clicks);
         const spend = toNum(data.spend);
-        const ctr = toNum(data.ctr) * 100; // nếu API đã trả CTR là %, bỏ *100
+        const ctr = toNum(data.ctr); // CTR % theo API trả
         const cpm = toNum(data.cpm);
         const cpc = toNum(data.cpc);
 
         this.logger.log(
-          `📊 [AdID: ${ad.adId}] - Hiển thị: ${impressions}, Click: ${clicks}, Chi phí: ${vnd(spend)}đ`
+          `📊 [AdID: ${ad.adId}] - Impr: ${impressions}, Click: ${clicks}, Spend: ${vnd(spend)}đ`
         );
 
-        // 3) Gọi OpenAI → yêu cầu JSON structured
-        type AIReturn = {
-          danh_gia: { chi_so: string; muc: 'Tốt' | 'Trung bình' | 'Kém'; nhan_xet: string }[];
-          tong_quan: string;
-          goi_y: string[];
-        };
+        // 3) AI đánh giá + gợi ý (kèm targeting)
+        const targetingSummary = this.summarizeTargeting(targeting);
 
-        const systemPrompt = `Bạn là chuyên gia quảng cáo Facebook. 
+        const systemPrompt = `Bạn là chuyên gia quảng cáo Facebook.
+NHIỆM VỤ:
 1) ĐÁNH GIÁ TỪNG CHỈ SỐ theo {Tốt|Trung bình|Kém} với lý do ngắn gọn: Hiển thị (Impressions), Clicks, Chi phí, CTR, CPM.
-2) Sau đó, đưa đúng 2–3 khuyến nghị ngắn gọn, thực tế nhất để tối ưu.
+2) ĐƯA 2–3 GỢI Ý tối ưu có tác động lớn nhất.
+3) PHÂN TÍCH TARGETING theo các phần: độ tuổi, giới tính, vị trí địa lý, sở thích/hành vi, vị trí hiển thị; nêu điểm hợp lý & chưa hợp lý; ĐỀ XUẤT 2–3 gợi ý chỉnh targeting.
+
 YÊU CẦU: Trả về DUY NHẤT JSON theo schema:
 {
   "danh_gia": [
@@ -274,7 +433,8 @@ YÊU CẦU: Trả về DUY NHẤT JSON theo schema:
     { "chi_so": "CPM", "muc": "Tốt|Trung bình|Kém", "nhan_xet": "..." }
   ],
   "tong_quan": "1–2 câu tổng hợp",
-  "goi_y": ["...", "..."] // 2–3 mục
+  "goi_y": ["...", "..."],            // 2–3 mục tối ưu hiệu suất
+  "targeting_goi_y": ["...", "..."]   // 2–3 mục tối ưu targeting
 }
 KHÔNG thêm chữ thừa, KHÔNG markdown.`
 
@@ -288,14 +448,21 @@ Dưới đây là dữ liệu quảng cáo:
 - Chi phí (Spend): ${vnd(spend)} VNĐ
 - CTR (%): ${pct(ctr)}
 - CPM (VNĐ): ${vnd(cpm)}
+- CPC (VNĐ): ${vnd(cpc)}
+
+TÓM TẮT TARGETING:
+${targetingSummary.lines.join('\n')}
+
+TARGETING RAW (JSON, có thể thiếu phần):
+${JSON.stringify(targetingSummary.raw || {}, null, 2)}
 
 Lưu ý:
-- Nếu thiếu benchmark, đánh giá tương đối theo mối quan hệ chỉ số (CTR thấp + CPM cao → hiệu quả Trung bình).
-- Chỉ đưa tối đa 3 gợi ý có tác động lớn nhất.
+- Nếu thiếu benchmark, đánh giá tương đối theo mối quan hệ chỉ số (VD: CTR thấp + CPM cao → hiệu quả Trung bình/Kém).
+- Mỗi mảng gợi ý chỉ tối đa 3 mục.
 
-Trả về đúng JSON như schema đã nêu.`
+Trả về đúng JSON như schema đã nêu.
+`
 
-        // Retry đơn giản cho OpenAI
         const callOpenAI = async () => {
           const body: any = {
             model: 'gpt-4',
@@ -304,7 +471,7 @@ Trả về đúng JSON như schema đã nêu.`
               { role: 'user', content: userPrompt }
             ],
             temperature: 0.2,
-            max_tokens: 600,
+            max_tokens: 700,
             // @ts-ignore
             response_format: { type: 'json_object' },
           };
@@ -330,7 +497,7 @@ Trả về đúng JSON như schema đã nêu.`
                 { role: 'user', content: userPrompt }
               ],
               temperature: 0.2,
-              max_tokens: 600,
+              max_tokens: 700,
             };
             openaiRes = await axios.post('https://api.openai.com/v1/chat/completions', fallbackBody, {
               headers: {
@@ -360,7 +527,7 @@ Trả về đúng JSON như schema đã nêu.`
           aiJson = null;
         }
 
-        // 4) Tính tương tác & render
+        // 4) Tính tương tác
         const actionTypeMap: Record<string, string> = {
           post_engagement: 'Tương tác với bài viết',
           page_engagement: 'Tương tác với trang',
@@ -386,66 +553,44 @@ Trả về đúng JSON như schema đã nêu.`
             return { label, value };
           });
 
-        const renderEvalTable = (r: AIReturn | null) => {
-          if (!r?.danh_gia?.length) return '<p>Không có đánh giá từ AI.</p>';
-          const badge = (muc: string) => {
-            switch (muc) {
-              case 'Kém': return `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:999px;font-weight:600;">Kém</span>`;
-              case 'Trung bình': return `<span style="background:#fef9c3;color:#a16207;padding:2px 8px;border-radius:999px;font-weight:600;">Trung bình</span>`;
-              default: return `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:999px;font-weight:600;">Tốt</span>`;
-            }
-          };
-          const rows = r.danh_gia.map(d =>
-            `<tr>
-          <td style="padding:8px;border:1px solid #eee;">${d.chi_so}</td>
-          <td style="padding:8px;border:1px solid #eee;">${badge(d.muc)}</td>
-          <td style="padding:8px;border:1px solid #eee;">${d.nhan_xet}</td>
-        </tr>`
-          ).join('');
-          return `
-      <table style="border-collapse:collapse;width:100%;margin-top:6px;">
-        <thead>
-          <tr style="background:#f9fafb;">
-            <th style="text-align:left;padding:8px;border:1px solid #eee;">Chỉ số</th>
-            <th style="text-align:left;padding:8px;border:1px solid #eee;">Mức</th>
-            <th style="text-align:left;padding:8px;border:1px solid #eee;">Nhận xét</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>`;
-        };
-
-        const renderTips = (r: AIReturn | null) => {
-          if (!r?.goi_y?.length) return '<p>Không có gợi ý.</p>';
-          const li = r.goi_y.map(g => `<li>${g}</li>`).join('');
-          return `<ul style="padding-left:18px;margin:6px 0 0 0;">${li}</ul>`;
-        };
-
         const recommendationStr = aiJson ? JSON.stringify(aiJson) : 'Không có khuyến nghị.';
+
+        // 5) Render email HTML
         const htmlReport = `
   <h3>📢 Thống kê quảng cáo</h3>
   <p><strong>Ad ID:</strong> ${ad.adId}</p>
   <p><strong>Chiến dịch:</strong> ${ad.campaignName || ''}</p>
   <p><strong>Người tạo:</strong> ${ad.createdBy?.email || ''}</p>
+
   <p><strong>👁 Hiển thị:</strong> ${int(impressions)}</p>
   <p><strong>🙋‍♂️ Reach:</strong> ${int(reach)}</p>
   <p><strong>🔁 Tần suất:</strong> ${pct(frequency)}</p>
   <p><strong>🖱 Click:</strong> ${int(clicks)}</p>
   <p><strong>🔗 Link Click:</strong> ${int(inlineLinkClicks)}</p>
   <p><strong>💸 Chi phí:</strong> ${vnd(spend)} VNĐ</p>
-  <p><strong>📊 CTR:</strong> ${pct(ctr)}% - CPM: ${vnd(cpm)} VNĐ - CPC: ${vnd(cpc)} VNĐ</p>
+  <p><strong>📊 CTR:</strong> ${pct(ctr)}% &nbsp;•&nbsp; CPM: ${vnd(cpm)} VNĐ &nbsp;•&nbsp; CPC: ${vnd(cpc)} VNĐ</p>
 
   <p><strong>📌 Tổng tương tác:</strong> ${int(totalEngagement)}</p>
   ${engagementItems.length ? `<ul>${engagementItems.map(e => `<li>${e.label}: ${int(e.value)}</li>`).join('')}</ul>` : ''}
 
   <hr style="margin:16px 0;"/>
+  <h4>🎯 Tóm tắt Targeting</h4>
+  <p>${targetingSummary.summary}</p>
+  <div style="margin-top:8px;">${targetingSummary.lines.length ? `<ul>${targetingSummary.lines.map(l => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>` : ''}</div>
+
+  <hr style="margin:16px 0;"/>
   <h4>📈 Đánh giá & Gợi ý tối ưu từ AI</h4>
   ${aiJson?.tong_quan ? `<p><em>${aiJson.tong_quan}</em></p>` : ''}
-  ${renderEvalTable(aiJson)}
-  <div style="margin-top:8px;"><strong>Gợi ý hành động:</strong>${renderTips(aiJson)}</div>
+  ${this.renderEvalTable(aiJson)}
+  <div style="margin-top:8px;"><strong>Gợi ý hành động:</strong>${this.renderTips(aiJson?.goi_y)}</div>
+
+  <div style="margin-top:12px;">
+    <strong>🎯 Gợi ý tối ưu Targeting:</strong>
+    ${this.renderTips(aiJson?.targeting_goi_y || [])}
+  </div>
 `;
 
-        // 6) Gửi mail (nếu có email)
+        // 6) Gửi mail cho owner
         if (ad.createdBy?.email) {
           await this.transporter.sendMail({
             from: '2203viettt@gmail.com',
@@ -458,7 +603,7 @@ Trả về đúng JSON như schema đã nêu.`
           this.logger.warn(`⚠️ Không gửi email vì người tạo quảng cáo không có email.`);
         }
 
-        // 7) Lưu DB
+        // 7) Lưu DB (giữ nguyên schema cũ — không thêm cột mới)
         try {
           await this.adInsightRepo.save({
             adId: String(ad.adId),
@@ -477,7 +622,11 @@ Trả về đúng JSON như schema đã nêu.`
 
             totalEngagement: String(totalEngagement),
             engagementDetails: JSON.stringify(engagementItems),
+
+            // Lưu cả phần AI (đã bao gồm targeting_goi_y nếu có)
             recommendation: recommendationStr,
+
+            // Lưu nguyên HTML (đã chứa phần targeting + gợi ý)
             htmlReport: String(htmlReport || ''),
 
             userId: ad.createdBy?.id ? String(ad.createdBy.id) : null,
