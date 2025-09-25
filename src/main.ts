@@ -1,40 +1,63 @@
-import { NestFactory } from '@nestjs/core'
-import { AppModule } from './app.module'
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
-import { ValidationPipe } from '@nestjs/common'
-import { KafkaOptions, Transport } from '@nestjs/microservices'
-import * as express from 'express'
-import { join } from 'path'
-import { SeedRolesService } from './seed/seed.roles'
-import cookieParser from 'cookie-parser'
-require('dotenv').config()
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { ValidationPipe } from '@nestjs/common';
+import { KafkaOptions, Transport } from '@nestjs/microservices';
+import * as express from 'express';
+import { join } from 'path';
+import { SeedRolesService } from './seed/seed.roles';
+import cookieParser from 'cookie-parser';
+
+require('dotenv').config();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'debug', 'verbose', 'log'],
-  })
+  });
 
-  const seedRolesService = app.get(SeedRolesService)
-  await seedRolesService.seed()
-  app.enableCors({ origin: true, credentials: true })
-  app.useGlobalPipes(new ValidationPipe())
+  // Nếu sau proxy: lấy đúng client IP cho CAPI
+  app.getHttpAdapter().getInstance().set('trust proxy', true);
+
+  // Seed
+  const seedRolesService = app.get(SeedRolesService);
+  await seedRolesService.seed();
+
+  // CORS
+  app.enableCors({ origin: true, credentials: true });
+
+  // Body limit (nếu cần batch data lớn)
+  app.use(express.json({ limit: '2mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+  // Cookie
+  app.use(cookieParser());
+
+  // Validation
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+
+  // Swagger
   const swaggerOptions = new DocumentBuilder()
     .setTitle('Camera AI')
     .setDescription('Camera AI Service')
     .setVersion('1.0')
     .addTag('Camera AI')
     .addBearerAuth()
-    .build()
+    .build();
+  const document = SwaggerModule.createDocument(app, swaggerOptions);
+  SwaggerModule.setup('explorer', app, document); // muốn nằm trong prefix thì đổi thành 'api/v1/explorer'
 
-  app.setGlobalPrefix('/api/v1')
-  const document = SwaggerModule.createDocument(app, swaggerOptions)
-  SwaggerModule.setup('explorer', app, document)
-  app.use('/public', express.static(join(__dirname, '..', 'uploads')))
-  await app.startAllMicroservices()
-  app.use(cookieParser())
-  await app.listen(3001)
+  // Prefix
+  app.setGlobalPrefix('/api/v1');
+
+  // Static
+  app.use('/public', express.static(join(__dirname, '..', 'uploads')));
+
+  // Nếu đã connectMicroservice() ở nơi khác thì mới cần dòng này:
+  // await app.startAllMicroservices();
+
+  await app.listen(3001);
 }
-bootstrap()
+bootstrap();
 
 export const kafkaConfig: KafkaOptions = {
   transport: Transport.KAFKA,
@@ -47,7 +70,8 @@ export const kafkaConfig: KafkaOptions = {
       allowAutoTopicCreation: true,
     },
   },
-}
+};
+
 
 // export const resdisConfig: RedisOptions = {
 //   transport: Transport.REDIS,
