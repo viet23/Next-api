@@ -27,7 +27,7 @@ export class UpdateUserGroupCommandHandler implements ICommandHandler<UpdateUser
     user.accessToken = dto.accessToken
     user.accessTokenUser = dto.accessTokenUser
     user.accountAdsId = dto.accountAdsId
-    user.groups = dto.groupIds.map((groupId) => Object.assign(new Group(), { id: groupId }))
+    user.groups = dto.groupIds?.map((groupId) => Object.assign(new Group(), { id: groupId }))
 
     return this.userRepo.save(user)
   }
