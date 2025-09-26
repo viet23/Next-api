@@ -117,6 +117,8 @@ export class UsersController {
   @Post('update-token')
   @UseGuards(JwtAuthGuard)
   async updateToken(@Body() dto: UserDataSyncDto, @Authen() user: User) {
+    console.log(`dto UserDataSyncDto`, dto);
+    
     return await this.usersService.updateToken(user, dto);
 
   }
