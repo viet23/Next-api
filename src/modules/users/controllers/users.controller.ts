@@ -65,6 +65,9 @@ export class UsersController {
   // @Roles(RoleEnum.PUT_USERS)
   @ApiParam({ name: 'id' })
   async updateGroup(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateUserGroupDto): Promise<Partial<any>> {
+      console.log(`dto111111111111id`, id);
+    console.log(`dto111111111111`, dto);
+    
     return this.commandBus.execute(new UpdateUserGroupCommand(dto, id))
   }
 
