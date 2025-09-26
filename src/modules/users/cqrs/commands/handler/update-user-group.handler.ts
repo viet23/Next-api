@@ -16,6 +16,9 @@ export class UpdateUserGroupCommandHandler implements ICommandHandler<UpdateUser
     if (!user) {
       throw new NotFoundException('Find not found user')
     }
+    console.log(`dto`, dto);
+    console.log(`gtoupIds`, dto.groupIds);
+    
     if (dto.extension) user.extension = dto.extension
     if (dto.fullName) user.fullName = dto.fullName
     if (dto.isActive) user.isActive = dto.isActive
