@@ -20,7 +20,7 @@ export class CreateUserCommandHandler implements ICommandHandler<CreateUserComma
       throw new NotFoundException('User already exists');
     }
 
-    const user = this.userRepo.create({
+    const user = await this.userRepo.create({
       email,
       username: email,
       fullName: username,
@@ -28,6 +28,9 @@ export class CreateUserCommandHandler implements ICommandHandler<CreateUserComma
       phone,
       zalo,
     });
+
+    console.log('Creating user and seeding subscriptions...' , user);
+    
 
     // (Tuỳ chọn) transaction gói cả tạo user + seed subscriptions
     return await this.connection.transaction(async manager => {
