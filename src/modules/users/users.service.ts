@@ -134,6 +134,8 @@ export class UsersService {
   }
 
   async updateToken(user: User, dto: UserDataSyncDto) {
+    console.log(`UserDataSyncDto`, dto);
+    
     let userData = await this.userRepo.findOne({ where: { email: user.email } });
     if (!userData) {
       throw new UnauthorizedException('User not found');
