@@ -7,6 +7,7 @@ import * as express from 'express';
 import { join } from 'path';
 import { SeedRolesService } from './seed/seed.roles';
 import cookieParser from 'cookie-parser';
+import { Connection } from 'typeorm'; // ⬅️ TypeORM 0.2.x dùng Connection
 
 require('dotenv').config();
 
@@ -18,14 +19,42 @@ async function bootstrap() {
   // Nếu sau proxy: lấy đúng client IP cho CAPI
   app.getHttpAdapter().getInstance().set('trust proxy', true);
 
-  // Seed
+  // Seed roles
   const seedRolesService = app.get(SeedRolesService);
   await seedRolesService.seed();
+
+  // ⬇️ Seed Free-subscription cho mọi user chưa có subscription (TypeORM 0.2.x)
+  const connection = app.get(Connection);
+  try {
+    // Nếu là PostgreSQL và dùng uuid_generate_v4()
+    await connection.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
+
+    await connection.query(`
+      INSERT INTO "tbl_user_subscriptions" 
+        ("id", "userId", "planId", "startDate", "endDate", "isPaid", "created_at", "updated_at")
+      SELECT
+        uuid_generate_v4(),
+        u."id",
+        (SELECT "id" FROM "tbl_subscription_plans" WHERE "name" = 'Free' LIMIT 1),
+        now(),
+        now() + interval '7 day',
+        true,
+        now(),
+        now()
+      FROM "tbl_users" u
+      WHERE NOT EXISTS (
+        SELECT 1 FROM "tbl_user_subscriptions" s WHERE s."userId" = u."id"
+      );
+    `);
+    console.log('[Seed] User Free subscriptions ensured.');
+  } catch (e) {
+    console.error('[Seed] Error seeding user subscriptions:', e?.message || e);
+  }
 
   // CORS
   app.enableCors({ origin: true, credentials: true });
 
-  // Body limit (nếu cần batch data lớn)
+  // Body limit
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
@@ -52,8 +81,7 @@ async function bootstrap() {
   // Static
   app.use('/public', express.static(join(__dirname, '..', 'uploads')));
 
-  // Nếu đã connectMicroservice() ở nơi khác thì mới cần dòng này:
-  // await app.startAllMicroservices();
+  // await app.startAllMicroservices(); // nếu dùng connectMicroservice() ở nơi khác
 
   await app.listen(3001);
 }
@@ -72,11 +100,7 @@ export const kafkaConfig: KafkaOptions = {
   },
 };
 
-
 // export const resdisConfig: RedisOptions = {
 //   transport: Transport.REDIS,
-//   options: {
-//     host: 'localhost',
-//     port:
-//   }
+//   options: { host: 'localhost', port: /* ... */ }
 // }
