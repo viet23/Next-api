@@ -2,54 +2,36 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
-import { Transport, KafkaOptions } from '@nestjs/microservices';
+import { KafkaOptions, Transport } from '@nestjs/microservices';
 import * as express from 'express';
 import { join } from 'path';
 import { SeedRolesService } from './seed/seed.roles';
-import { Connection } from 'typeorm'; // TypeORM 0.2.x
+import cookieParser from 'cookie-parser';
+import { Connection } from 'typeorm'; // ⬅️ TypeORM 0.2.x dùng Connection
 
 require('dotenv').config();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug', 'verbose'],
+    logger: ['error', 'warn', 'debug', 'verbose', 'log'],
   });
 
-  // Nếu chạy sau proxy (Nginx/ALB) để lấy đúng IP client
+  // Nếu sau proxy: lấy đúng client IP cho CAPI
   app.getHttpAdapter().getInstance().set('trust proxy', true);
-
-  // CORS
-  app.enableCors({ origin: true, credentials: true });
-
-  // Body limit (không cần thêm package)
-  app.use(express.json({ limit: '2mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
-
-  // ✅ ValidationPipe: bắt buộc để DTO map dữ liệu chính xác
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
-    }),
-  );
-
-  // Prefix API (không có dấu '/')
-  app.setGlobalPrefix('api/v1');
 
   // Seed roles
   const seedRolesService = app.get(SeedRolesService);
   await seedRolesService.seed();
 
-  // Seed Free-subscription (TypeORM 0.2.x: Connection)
+  // ⬇️ Seed Free-subscription cho mọi user chưa có subscription (TypeORM 0.2.x)
   const connection = app.get(Connection);
   try {
+    // Nếu là PostgreSQL và dùng uuid_generate_v4()
     await connection.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
-    // Đảm bảo đã có plan 'Free' (nếu chưa có, hãy insert trong seed/migration riêng)
+
     await connection.query(`
-      INSERT INTO "tbl_user_subscriptions"
-        ("id","userId","planId","startDate","endDate","isPaid","created_at","updated_at")
+      INSERT INTO "tbl_user_subscriptions" 
+        ("id", "userId", "planId", "startDate", "endDate", "isPaid", "created_at", "updated_at")
       SELECT
         uuid_generate_v4(),
         u."id",
@@ -69,35 +51,42 @@ async function bootstrap() {
     console.error('[Seed] Error seeding user subscriptions:', e?.message || e);
   }
 
-  // Swagger (chỉ bật khi không phải production)
-  const swaggerConfig = new DocumentBuilder()
+  // CORS
+  app.enableCors({ origin: true, credentials: true });
+
+  // Body limit
+  app.use(express.json({ limit: '2mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+  // Cookie
+  app.use(cookieParser());
+
+  // Validation
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+
+  // Swagger
+  const swaggerOptions = new DocumentBuilder()
     .setTitle('Camera AI')
     .setDescription('Camera AI Service')
     .setVersion('1.0')
     .addTag('Camera AI')
     .addBearerAuth()
     .build();
+  const document = SwaggerModule.createDocument(app, swaggerOptions);
+  SwaggerModule.setup('explorer', app, document); // muốn nằm trong prefix thì đổi thành 'api/v1/explorer'
 
-  if (process.env.NODE_ENV !== 'production') {
-    const document = SwaggerModule.createDocument(app, swaggerConfig);
-    // Hiển thị tại: GET /api/v1/explorer
-    SwaggerModule.setup('explorer', app, document, { useGlobalPrefix: true });
-  }
+  // Prefix
+  app.setGlobalPrefix('/api/v1');
 
-  // Static files
+  // Static
   app.use('/public', express.static(join(__dirname, '..', 'uploads')));
 
-  // Graceful shutdown
-  app.enableShutdownHooks();
+  // await app.startAllMicroservices(); // nếu dùng connectMicroservice() ở nơi khác
 
-  const port = Number(process.env.PORT) || 3001;
-  await app.listen(port);
-  console.log(`🚀 Server is running at http://localhost:${port}`);
+  await app.listen(3001);
 }
-
 bootstrap();
 
-// (Tuỳ chọn) Kafka config – giữ nguyên, không yêu cầu cài thêm gì
 export const kafkaConfig: KafkaOptions = {
   transport: Transport.KAFKA,
   options: {
@@ -110,3 +99,8 @@ export const kafkaConfig: KafkaOptions = {
     },
   },
 };
+
+// export const resdisConfig: RedisOptions = {
+//   transport: Transport.REDIS,
+//   options: { host: 'localhost', port: /* ... */ }
+// }
