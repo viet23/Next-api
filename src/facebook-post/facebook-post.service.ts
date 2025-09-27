@@ -99,6 +99,9 @@ export class FacebookPostService {
         accessToken: string,
         rawCookie: string
     ) {
+        const MAX_POSTS = 150;                 // giới hạn
+        const PAGE_SIZE = 100;                 // mỗi trang (Graph cho phép 100)
+
         const fields =
             "id,message,created_time,full_picture,permalink_url,likes.summary(true),comments.summary(true),shares";
         const base = `https://graph.facebook.com/v19.0/${pageId}/posts`;
@@ -106,7 +109,7 @@ export class FacebookPostService {
 
         const params = new URLSearchParams({
             fields,
-            limit: "100",
+            limit: String(PAGE_SIZE),
             access_token: accessToken,
         });
         if (appsecret_proof) params.append("appsecret_proof", appsecret_proof);
@@ -115,28 +118,29 @@ export class FacebookPostService {
         const all: any[] = [];
 
         try {
-            while (url) {
+            while (url && all.length < MAX_POSTS) {
                 try {
                     const { data } = await axios.get(url, {
                         headers: this.fbHeaders(accessToken, rawCookie),
                         timeout: 20000,
                     });
 
-                    if (Array.isArray(data?.data)) {
+                    if (Array.isArray(data?.data) && data.data.length) {
                         all.push(...data.data);
+
+                        // đủ 150 thì cắt và thoát
+                        if (all.length >= MAX_POSTS) break;
                     }
+
                     url = data?.paging?.next ?? null;
                 } catch (err: any) {
-                    console.error(
-                        "[fetchAllPostsFromGraph] Error fetching posts:",
-                        {
-                            url,
-                            pageId,
-                            message: err?.message,
-                            response: err?.response?.data,
-                        }
-                    );
-                    break; // hoặc throw err;
+                    console.error("[fetchAllPostsFromGraph] Error fetching posts:", {
+                        url,
+                        pageId,
+                        message: err?.message,
+                        response: err?.response?.data,
+                    });
+                    break;
                 }
             }
         } catch (outerErr) {
@@ -144,8 +148,9 @@ export class FacebookPostService {
             throw outerErr;
         }
 
-        return all;
+        return all.slice(0, MAX_POSTS);
     }
+
 
     /** Lấy reach (post_impressions_unique) cho từng post id */
     private async fetchReachForPosts(postIds: string[], accessToken: string, rawCookie?: string) {
@@ -289,7 +294,7 @@ export class FacebookPostService {
 
                 const { data } = await axios.get(baseUrl, { params: paramsPreset, headers, timeout: 20000 });
                 console.log('[fetchPageViewsDaily] preset data:', data);
-                
+
                 const rawValues = data?.data?.find((it: any) => it?.name === metric)?.values ?? [];
                 if (Array.isArray(rawValues) && rawValues.length) {
                     return formatValues(rawValues);
