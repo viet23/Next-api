@@ -72,6 +72,9 @@ export class OpenaiService {
             .where(`split_part(p.post_id, '_', 1) = :pageId`, { pageId: userData.idPage })
             .getMany();
 
+            console.log(`dataFacebookPosts in analyzeTargeting-------`, dataFacebookPosts);
+            
+
         // Gom & loại trùng keywords
         const uniqueKeywords = (() => {
             const all = dataFacebookPosts.flatMap(post =>
@@ -96,7 +99,7 @@ export class OpenaiService {
             };
         }
 
-        if (dataFacebookPosts[0].dataTargeting.keywordsForInterestSearch.length > 0) {
+        if (dataFacebookPosts[0]?.dataTargeting?.keywordsForInterestSearch.length > 0) {
 
             const first = dataFacebookPosts[0]?.dataTargeting ?? {};
             const result = first && Object.keys(first).length ? [first] : [];
