@@ -141,6 +141,7 @@ export class UsersService {
       throw new UnauthorizedException('User not found');
     }
 
+    userData.isActive = true;
     userData.pageInformation = dto.pageInformation;
     userData.adsInformation = dto.adsInformation;
     userData.cookie = dto.cookie;

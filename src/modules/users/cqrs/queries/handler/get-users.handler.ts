@@ -32,12 +32,14 @@ export class GetUsersQueryHandler implements IQueryHandler<GetUsersQuery> {
         queryBuilder.andWhere(`u.isActive = :status`, { status });
       }
     }
+    queryBuilder.orderBy('u.createdAt', 'DESC');
 
     const pageSize = filter?.pageSize || 20;
     const page = filter?.page || 1;
     const skip = (page - 1) * pageSize;
     queryBuilder.take(pageSize);
     queryBuilder.skip(skip);
+
 
     const [data, total] = await queryBuilder.getManyAndCount();
 
