@@ -6,4 +6,8 @@ export class FilterUsersDto {
 
   @ApiProperty()
   status: boolean
+
+  @ApiProperty()
+  plan: string
+
 }
