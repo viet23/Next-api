@@ -186,6 +186,9 @@ export class UsersService {
 
     const save =  this.userSubRepo.save(sub);
 
+    user.isActive = true;
+    this.userRepo.save(user);
+
     await this.mailerService.sendPlan(
       {
         name: dto.name,

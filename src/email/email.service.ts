@@ -165,25 +165,25 @@ export class EmailService {
     // ƯU TIÊN: đọc custom_locations (lat/lng + radius mi) để tránh báo "Không giới hạn"
     const customLocs: string[] = Array.isArray(loc.custom_locations)
       ? loc.custom_locations.slice(0, 3).map((c: any) => {
-          const lat = Number(c.latitude);
-          const lng = Number(c.longitude);
-          const r  = Number(c.radius);
-          const unit = String(c.distance_unit || 'mile'); // Graph trả 'mile'
-          const latStr = Number.isFinite(lat) ? lat.toFixed(4) : '?';
-          const lngStr = Number.isFinite(lng) ? lng.toFixed(4) : '?';
+        const lat = Number(c.latitude);
+        const lng = Number(c.longitude);
+        const r = Number(c.radius);
+        const unit = String(c.distance_unit || 'mile'); // Graph trả 'mile'
+        const latStr = Number.isFinite(lat) ? lat.toFixed(4) : '?';
+        const lngStr = Number.isFinite(lng) ? lng.toFixed(4) : '?';
 
-          // Hiển thị thêm km cho dễ đọc
-          const radiusMi = Number.isFinite(r) ? r : NaN;
-          const radiusKm = Number.isFinite(radiusMi) ? (unit === 'mile' ? radiusMi * 1.609 : radiusMi) : NaN;
-          const radiusTxt =
-            Number.isFinite(radiusMi)
-              ? unit === 'mile'
-                ? `${radiusMi} mi (~${radiusKm.toFixed(1)} km)`
-                : `${radiusKm.toFixed(1)} km`
-              : '';
+        // Hiển thị thêm km cho dễ đọc
+        const radiusMi = Number.isFinite(r) ? r : NaN;
+        const radiusKm = Number.isFinite(radiusMi) ? (unit === 'mile' ? radiusMi * 1.609 : radiusMi) : NaN;
+        const radiusTxt =
+          Number.isFinite(radiusMi)
+            ? unit === 'mile'
+              ? `${radiusMi} mi (~${radiusKm.toFixed(1)} km)`
+              : `${radiusKm.toFixed(1)} km`
+            : '';
 
-          return `${latStr},${lngStr}${radiusTxt ? ` (${radiusTxt})` : ''}`;
-        })
+        return `${latStr},${lngStr}${radiusTxt ? ` (${radiusTxt})` : ''}`;
+      })
       : [];
 
     const countries =
@@ -192,13 +192,12 @@ export class EmailService {
     const cities =
       Array.isArray(loc.cities) && loc.cities.length
         ? loc.cities
-            .slice(0, 3)
-            .map((c: any) =>
-              `${c.name || c.key}${
-                c.distance_unit && c.radius ? ` (+${c.radius}${c.distance_unit})` : ''
-              }`,
-            )
-            .join(' • ')
+          .slice(0, 3)
+          .map((c: any) =>
+            `${c.name || c.key}${c.distance_unit && c.radius ? ` (+${c.radius}${c.distance_unit})` : ''
+            }`,
+          )
+          .join(' • ')
         : null;
 
     const regions =
@@ -238,8 +237,8 @@ export class EmailService {
         (Array.isArray(t.instagram_positions) && t.instagram_positions.length
           ? t.instagram_positions
           : Array.isArray(t.facebook_positions) && t.facebook_positions.length
-          ? t.facebook_positions
-          : t.positions || []) || [];
+            ? t.facebook_positions
+            : t.positions || []) || [];
       return pos.length ? `${platforms || '—'} / ${pos.join(', ')}` : platforms || 'Tự động';
     })();
 
@@ -395,7 +394,8 @@ export class EmailService {
           const n = Number(v);
           return Number.isFinite(n) ? n : def;
         };
-        const vnd = (v: any) => toNum(v).toLocaleString('vi-VN');
+        const vnd = (v: any) =>
+          toNum(v).toLocaleString('vi-VN', { maximumFractionDigits: 0 });
         const pct = (v: any, digits = 2) => toNum(v).toFixed(digits);
         const int = (v: any) => Math.round(toNum(v)).toLocaleString('vi-VN');
 
@@ -573,22 +573,24 @@ Trả về đúng JSON như schema đã nêu.
   <p><strong>📌 Tổng tương tác:</strong> ${int(totalEngagement)}</p>
   ${engagementItems.length ? `<ul>${engagementItems.map(e => `<li>${e.label}: ${int(e.value)}</li>`).join('')}</ul>` : ''}
 
-  <hr style="margin:16px 0;"/>
-  <h4>🎯 Tóm tắt Targeting</h4>
-  <p>${targetingSummary.summary}</p>
-  <div style="margin-top:8px;">${targetingSummary.lines.length ? `<ul>${targetingSummary.lines.map(l => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>` : ''}</div>
-
-  <hr style="margin:16px 0;"/>
-  <h4>📈 Đánh giá & Gợi ý tối ưu từ AI</h4>
-  ${aiJson?.tong_quan ? `<p><em>${aiJson.tong_quan}</em></p>` : ''}
-  ${this.renderEvalTable(aiJson)}
-  <div style="margin-top:8px;"><strong>Gợi ý hành động:</strong>${this.renderTips(aiJson?.goi_y)}</div>
-
-  <div style="margin-top:12px;">
-    <strong>🎯 Gợi ý tối ưu Targeting:</strong>
-    ${this.renderTips(aiJson?.targeting_goi_y || [])}
-  </div>
+ 
 `;
+
+        //  <hr style="margin:16px 0;"/>
+        //   <h4>🎯 Tóm tắt Targeting</h4>
+        //   <p>${targetingSummary.summary}</p>
+        //   <div style="margin-top:8px;">${targetingSummary.lines.length ? `<ul>${targetingSummary.lines.map(l => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>` : ''}</div>
+
+        //   <hr style="margin:16px 0;"/>
+        //   <h4>📈 Đánh giá & Gợi ý tối ưu từ AI</h4>
+        //   ${aiJson?.tong_quan ? `<p><em>${aiJson.tong_quan}</em></p>` : ''}
+        //   ${this.renderEvalTable(aiJson)}
+        //   <div style="margin-top:8px;"><strong>Gợi ý hành động:</strong>${this.renderTips(aiJson?.goi_y)}</div>
+
+        //   <div style="margin-top:12px;">
+        //     <strong>🎯 Gợi ý tối ưu Targeting:</strong>
+        //     ${this.renderTips(aiJson?.targeting_goi_y || [])}
+        //   </div>
 
         // 6) Gửi mail cho owner
         if (ad.createdBy?.email) {
@@ -616,9 +618,9 @@ Trả về đúng JSON như schema đã nêu.
             clicks: String(clicks),
             inlineLinkClicks: String(inlineLinkClicks),
             spendVnd: String(spend),
-            ctrPercent: String(ctr),
-            cpmVnd: String(cpm),
-            cpcVnd: String(cpc),
+            ctrPercent: pct(ctr),
+            cpmVnd: vnd(cpm),
+            cpcVnd: vnd(cpc),
 
             totalEngagement: String(totalEngagement),
             engagementDetails: JSON.stringify(engagementItems),
