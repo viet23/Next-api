@@ -11,6 +11,27 @@ import FormData from 'form-data'
 import crypto from 'node:crypto'
 import { AdInsight } from '@models/ad-insight.entity'
 
+/** ===================== Types & DTO (extended) ===================== */
+type TargetingSpec = Record<string, any>;
+type MediaKind = 'video' | 'photo' | 'link' | 'status' | 'unknown'
+
+type PlacementsInput = {
+  publisher_platforms?: string[];
+  facebook_positions?: string[];
+  instagram_positions?: string[];
+  messenger_positions?: string[];
+  audience_network_positions?: string[];
+  device_platforms?: Array<'mobile' | 'desktop'>;
+};
+
+type GeoLocationsInput = {
+  countries?: string[];
+  cities?: Array<{ key: string; radius?: number; distance_unit?: 'mile' | 'kilometer' }>;
+  custom_locations?: Array<{ latitude: number; longitude: number; radius: number; distance_unit?: 'mile' | 'kilometer' }>;
+  regions?: any[];
+  location_types?: string[];
+};
+
 type AnyDto = CreateFacebookAdDto & {
   messageDestination?: 'MESSENGER' | 'WHATSAPP' | 'INSTAGRAM_DIRECT'
   whatsappNumber?: string
@@ -22,17 +43,27 @@ type AnyDto = CreateFacebookAdDto & {
   leadgenFormId?: string
   /** toggle mở Advantage Audience */
   aiTargeting?: boolean
-  /** gợi ý AI */
+  /** gợi ý AI (tiếng Anh) */
   targetingAI?: {
     keywordsForInterestSearch?: string[]
     behaviors?: Array<{ id: string; name?: string }>
+    // các key tiếng Việt có thể nằm trong targetingAI.mẫu_targeting
+    'mẫu_targeting'?: {
+      'sở_thích'?: Array<{ 'mã': string; 'tên'?: string }>
+      'hành_vi'?: Array<{ 'mã': string; 'tên'?: string }>
+      'giới_tính'?: number[]
+      'tuổi_tối_thiểu'?: number
+      'tuổi_tối_đa'?: number
+      'vị_trí_địa_lý'?: { 'quốc_gia'?: string[] }
+    }
   }
   /** NEW: đơn vị bán kính client truyền vào (m/km/mi) */
   radiusUnit?: 'm' | 'km' | 'mi'
+  /** Cho phép truyền placements chi tiết */
+  placements?: PlacementsInput | string[]
+  /** Cho phép truyền geo_locations thô (cities + custom_locations) */
+  geo_locations?: GeoLocationsInput
 }
-
-type TargetingSpec = Record<string, any>;
-type MediaKind = 'video' | 'photo' | 'link' | 'status' | 'unknown'
 
 type ListOpts = {
   fields?: string[];
@@ -43,7 +74,7 @@ type ListOpts = {
   datePreset?: string; // 'last_7d', 'last_30d', 'today'
 };
 
-// ================= FB CLIENT =================
+/** ===================== FB CLIENT ===================== */
 const isServer = typeof window === 'undefined'
 function buildAppSecretProof(token?: string) {
   const secret = process.env.FB_APP_SECRET
@@ -74,8 +105,8 @@ function createFbGraphClient(opts: {
   })
   return client
 }
-// ============================================
 
+/** ===================== Service ===================== */
 @Injectable()
 export class FacebookAdsService {
   constructor(
@@ -90,7 +121,7 @@ export class FacebookAdsService {
     return createFbGraphClient({ token, cookie, version, timeoutMs })
   }
 
-  // =============== Helpers (mapping) ===============
+  /** ===================== Helpers (mapping) ===================== */
   private mapGender(g?: 'all' | 'male' | 'female'): number[] | undefined {
     if (!g || g === 'all') return undefined
     if (g === 'male') return [1]   // FB: 1=male
@@ -98,7 +129,74 @@ export class FacebookAdsService {
     return undefined
   }
 
-  private mapPlacements(goal: AdsGoal, opts?: { disableInstagram?: boolean }) {
+  // chuẩn hóa token placements từ mảng rút gọn về object Graph
+  private normalizePlacements(input?: PlacementsInput | string[]): PlacementsInput | undefined {
+    if (!input) return undefined;
+    if (Array.isArray(input)) {
+      const out: PlacementsInput = {};
+      const pp = new Set<string>();
+      const fbPos = new Set<string>();
+      const igPos = new Set<string>();
+      const msPos = new Set<string>();
+      const anPos = new Set<string>();
+      const devs = new Set<'mobile' | 'desktop'>();
+
+      for (const raw of input) {
+        const t = String(raw || '').toLowerCase().trim();
+
+        if (t.startsWith('facebook')) pp.add('facebook');
+        if (t.startsWith('instagram') || t === 'reels' || t.includes('ig')) pp.add('instagram');
+        if (t.startsWith('messenger')) pp.add('messenger');
+        if (t.includes('audience_network') || t === 'audience_network') pp.add('audience_network');
+
+        if (t.includes('feed')) fbPos.add('feed');
+        if (t.includes('marketplace')) fbPos.add('marketplace');
+        if (t.includes('instream') || t.includes('video')) fbPos.add('instream_video');
+        if (t.includes('search')) fbPos.add('search');
+        if (t.includes('reels')) fbPos.add('facebook_reels');
+        if (t.includes('story')) fbPos.add('story');
+
+        if (t.includes('ig_stream') || t.includes('instagram_stream')) igPos.add('stream');
+        if (t.includes('ig_story') || (t.includes('instagram') && t.includes('story'))) igPos.add('story');
+        if (t.includes('ig_reels') || (t.includes('instagram') && t.includes('reels'))) igPos.add('reels');
+        if (t.includes('explore')) igPos.add('explore');
+
+        if (t.includes('messenger_home')) msPos.add('messenger_home');
+        if (t.includes('sponsored_messages')) msPos.add('sponsored_messages');
+
+        if (t.includes('in_stream_video')) anPos.add('in_stream_video');
+        if (t.includes('native') || t.includes('banner') || t.includes('interstitial')) {
+          anPos.add('classic');
+        }
+
+        if (t.includes('desktop')) devs.add('desktop');
+        if (t.includes('mobile')) devs.add('mobile');
+      }
+
+      if (pp.size) out.publisher_platforms = Array.from(pp);
+      if (fbPos.size) out.facebook_positions = Array.from(fbPos);
+      if (igPos.size) out.instagram_positions = Array.from(igPos);
+      if (msPos.size) out.messenger_positions = Array.from(msPos);
+      if (anPos.size) out.audience_network_positions = Array.from(anPos);
+      if (devs.size) out.device_platforms = Array.from(devs);
+
+      return out;
+    }
+    return input as PlacementsInput;
+  }
+
+  // ưu tiên placements người dùng, nếu không → mặc định
+  private mapPlacements(goal: AdsGoal, opts?: { disableInstagram?: boolean, manual?: PlacementsInput }) {
+    if (opts?.manual) {
+      const m = { ...opts.manual };
+      const pp = new Set(m.publisher_platforms || []);
+      if (m.facebook_positions?.length) pp.add('facebook');
+      if (m.instagram_positions?.length) pp.add('instagram');
+      if (m.messenger_positions?.length) pp.add('messenger');
+      if (m.audience_network_positions?.length) pp.add('audience_network');
+      if (pp.size) m.publisher_platforms = Array.from(pp);
+      return m;
+    }
     const base = {
       publisher_platforms: ['facebook', 'instagram'],
       facebook_positions: ['feed'],
@@ -112,6 +210,56 @@ export class FacebookAdsService {
     }
     return base
   }
+
+  // chuẩn hóa geo_locations truyền thô
+  private sanitizeGeoLocations(geo?: GeoLocationsInput): any | undefined {
+    if (!geo) return undefined;
+    const out: any = {};
+
+    // ✅ countries
+    if (Array.isArray(geo.countries) && geo.countries.length) {
+      out.countries = geo.countries.slice(0, 25);
+    }
+
+    // ✅ cities (Facebook chỉ cho phép key + radius, radius tính bằng mile)
+    if (Array.isArray(geo.cities) && geo.cities.length) {
+      out.cities = geo.cities
+        .filter(c => c?.key)
+        .slice(0, 200)
+        .map(c => ({
+          key: String(c.key),
+          radius: Math.max(1, Math.min(50, Number(c.radius))), // mile cố định
+          // ❌ KHÔNG thêm distance_unit cho cities
+        }));
+    }
+
+    // ✅ custom_locations (cho phép distance_unit: mile/kilometer)
+    if (Array.isArray(geo.custom_locations) && geo.custom_locations.length) {
+      out.custom_locations = geo.custom_locations
+        .filter(l =>
+          Number.isFinite(l?.latitude as any) &&
+          Number.isFinite(l?.longitude as any) &&
+          Number.isFinite(l?.radius as any)
+        )
+        .slice(0, 200)
+        .map(l => ({
+          latitude: Number(l.latitude),
+          longitude: Number(l.longitude),
+          radius: Math.max(1, Math.min(50, Number(l.radius))),
+          distance_unit: l.distance_unit === 'kilometer' ? 'kilometer' : 'mile',
+        }));
+    }
+
+    if (Array.isArray(geo.regions) && geo.regions.length) {
+      out.regions = geo.regions;
+    }
+    if (Array.isArray(geo.location_types) && geo.location_types.length) {
+      out.location_types = geo.location_types;
+    }
+
+    return Object.keys(out).length ? out : undefined;
+  }
+
 
   private mapCampaignObjective(goal: AdsGoal): string {
     switch (goal) {
@@ -180,7 +328,7 @@ export class FacebookAdsService {
     if (isNaN(Date.parse(val))) throw new BadRequestException(`${label} không đúng định dạng ISO 8601`)
   }
 
-  /** NEW: Quy đổi bán kính về mile (1–50) theo đơn vị truyền vào/heuristic */
+  /** Quy đổi bán kính về mile (1–50) theo đơn vị truyền vào/heuristic */
   private normalizeRadiusToMiles(value?: number, unit?: 'm' | 'km' | 'mi'): number | undefined {
     if (typeof value !== 'number' || isNaN(value) || value <= 0) return undefined;
 
@@ -189,7 +337,6 @@ export class FacebookAdsService {
     else if (unit === 'km') miles = value / 1.609;
     else if (unit === 'm') miles = (value / 1000) / 1.609;
     else {
-      // Heuristic khi không truyền đơn vị
       if (value > 2000) miles = (value / 1000) / 1.609; // coi là mét
       else if (value > 50) miles = value / 1.609;       // coi là km
       else miles = value;                                // coi là mile
@@ -198,7 +345,7 @@ export class FacebookAdsService {
     return Math.max(1, Math.min(50, Number(miles.toFixed(2))));
   }
 
-  // =============== Helpers (Graph utils) ===============
+  /** ===================== Helpers (Graph utils) ===================== */
   private async detectMediaKind(postId: string, fb: AxiosInstance): Promise<MediaKind> {
     if (!postId) return 'unknown'
     try {
@@ -271,13 +418,11 @@ export class FacebookAdsService {
     return okList
   }
 
-  // =============== Targeting build/normalize ===============
-  /** gom interests / behaviors vào flexible_spec (Graph yêu cầu) */
+  /** ===================== Targeting build/normalize ===================== */
   private normalizeTargetingForCreation(t: TargetingSpec) {
     const out: TargetingSpec = { ...(t || {}) };
     const flex: any[] = Array.isArray(out.flexible_spec) ? [...out.flexible_spec] : [];
 
-    // nếu dev lỡ gán root.interests / root.behaviors → chuyển sang flexible_spec
     if (Array.isArray(out.interests) && out.interests.length) {
       flex.push({ interests: out.interests });
       delete out.interests;
@@ -291,7 +436,6 @@ export class FacebookAdsService {
     return out;
   }
 
-  /** trộn interests/behaviors (flexible_spec) với dữ liệu sẵn có */
   private mergeFlex(t: TargetingSpec, chunk: { interests?: any[]; behaviors?: any[] }) {
     const flex: any[] = Array.isArray(t.flexible_spec) ? [...t.flexible_spec] : [];
     const add: any = {};
@@ -307,57 +451,260 @@ export class FacebookAdsService {
     adAccountId: string,
     fb: AxiosInstance
   ) {
-    const clampedRadius = this.normalizeRadiusToMiles(dto.radius, dto.radiusUnit)
-    const geo_locations =
-      dto.location && typeof clampedRadius === 'number'
-        ? { custom_locations: [{ latitude: dto.location.lat, longitude: dto.location.lng, radius: clampedRadius, distance_unit: 'mile' }] }
-        : { countries: ['VN'] }
+    // GEO
+    let geo_locations: any | undefined;
+    if (dto.geo_locations) {
+      geo_locations = this.sanitizeGeoLocations(dto.geo_locations);
+    } else {
+      const clampedRadius = this.normalizeRadiusToMiles(dto.radius, dto.radiusUnit);
+      geo_locations =
+        dto.location && typeof clampedRadius === 'number'
+          ? {
+            custom_locations: [
+              {
+                latitude: dto.location.lat,
+                longitude: dto.location.lng,
+                radius: clampedRadius,
+                distance_unit: 'mile',
+              },
+            ],
+          }
+          : { countries: ['VN'] };
+    }
 
-    const disableInstagram = dto.goal === AdsGoal.ENGAGEMENT && !dto.instagramActorId
-    const placements = this.mapPlacements(dto.goal, { disableInstagram })
+    // PLACEMENTS
+    const disableInstagram =
+      dto.goal === AdsGoal.ENGAGEMENT && !dto.instagramActorId;
+    const manualPlacements = this.normalizePlacements(dto.placements);
+    const placements = this.mapPlacements(dto.goal, {
+      disableInstagram,
+      manual: manualPlacements,
+    });
 
     const targetingBase: TargetingSpec = {
       geo_locations,
       ...placements,
       targeting_automation: { advantage_audience: dto.aiTargeting ? 1 : 0 },
-    }
+    };
+    const targeting: TargetingSpec = { ...targetingBase };
 
-    const targeting: TargetingSpec = { ...targetingBase }
-
-    // age/gender
+    // AGE/GENDER
     if (Array.isArray(dto.ageRange) && dto.ageRange.length === 2) {
-      const [min, max] = dto.ageRange
-      if (Number.isFinite(min)) targeting.age_min = Math.max(13, Math.floor(min))
-      if (Number.isFinite(max)) targeting.age_max = Math.floor(max)
+      const [min, max] = dto.ageRange;
+      if (Number.isFinite(min)) targeting.age_min = Math.max(13, Math.floor(min));
+      if (Number.isFinite(max)) targeting.age_max = Math.floor(max);
     }
-    const genders = this.mapGender(dto.gender)
-    if (genders) targeting.genders = genders
+    const genders = this.mapGender(dto.gender as any);
+    if (genders) targeting.genders = genders;
 
-    // interests (manual + AI keywords) → search → flexible_spec
-    const manualInterestNames: string[] = Array.isArray(dto.detailedTargeting) ? dto.detailedTargeting.filter(Boolean) : []
-    const aiKeywords: string[] = Array.isArray(dto?.targetingAI?.keywordsForInterestSearch)
+    // Việt ngữ từ mẫu_targeting nếu chưa set
+    const viTpl = dto?.targetingAI?.['mẫu_targeting'];
+    if (viTpl) {
+      if (
+        typeof viTpl['tuổi_tối_thiểu'] === 'number' &&
+        targeting.age_min == null
+      )
+        targeting.age_min = Math.max(13, Math.floor(viTpl['tuổi_tối_thiểu']));
+      if (
+        typeof viTpl['tuổi_tối_đa'] === 'number' &&
+        targeting.age_max == null
+      )
+        targeting.age_max = Math.floor(viTpl['tuổi_tối_đa']);
+      if (Array.isArray(viTpl['giới_tính']) && !targeting.genders) {
+        const vs = viTpl['giới_tính'].filter((n) => n === 1 || n === 2);
+        if (vs.length) targeting.genders = vs;
+      }
+      if (
+        viTpl['vị_trí_địa_lý']?.['quốc_gia'] &&
+        !dto.geo_locations &&
+        !dto.location
+      ) {
+        targeting.geo_locations = {
+          countries: viTpl['vị_trí_địa_lý']['quốc_gia'],
+        };
+      }
+    }
+
+    // INTERESTS
+    const manualInterestNames: string[] = Array.isArray(dto.detailedTargeting)
+      ? dto.detailedTargeting.filter(Boolean)
+      : [];
+    const aiKeywords: string[] = Array.isArray(
+      dto?.targetingAI?.keywordsForInterestSearch,
+    )
       ? dto.targetingAI.keywordsForInterestSearch
-      : []
-    const needLookup = [...new Set([...manualInterestNames, ...aiKeywords])]
+      : [];
+    const viInterests = Array.isArray(viTpl?.['sở_thích'])
+      ? viTpl!['sở_thích']
+      : [];
+    const viInterestNames: string[] = viInterests
+      .map((x) => x?.['tên'] || '')
+      .filter(Boolean);
+
+    const needLookup = [
+      ...new Set([...manualInterestNames, ...aiKeywords, ...viInterestNames]),
+    ].slice(0, 30);
     if (needLookup.length > 0) {
-      const lookedUp = await this.searchInterestsByNames(needLookup, fb)
-      if (lookedUp.length) this.mergeFlex(targeting, { interests: lookedUp.slice(0, 10) })
+      const lookedUp = await this.searchInterestsByNames(needLookup, fb);
+      if (lookedUp.length)
+        this.mergeFlex(targeting, { interests: lookedUp.slice(0, 10) });
     }
 
-    // behaviors → validate → flexible_spec (skip cho MESSAGE theo logic cũ)
-    if (dto.goal !== AdsGoal.MESSAGE && Array.isArray(dto?.targetingAI?.behaviors) && dto.targetingAI.behaviors.length) {
-      const raw = dto.targetingAI.behaviors
-        .filter((b: any) => b?.id && /^\d+$/.test(String(b.id)))
-        .map((b: any) => ({ id: String(b.id), name: b.name }))
-        .slice(0, 10)
-      const valid = await this.validateBehaviors(raw, adAccountId, fb)
-      if (valid.length) this.mergeFlex(targeting, { behaviors: valid })
+    // BEHAVIORS
+    let rawBehaviors: Array<{ id: string; name?: string }> = [];
+    if (Array.isArray(dto?.targetingAI?.behaviors)) {
+      rawBehaviors = rawBehaviors.concat(
+        dto.targetingAI.behaviors
+          .filter((b: any) => b?.id && /^\d+$/.test(String(b.id)))
+          .map((b: any) => ({ id: String(b.id), name: b.name })),
+      );
+    }
+    const viBehaviors = Array.isArray(viTpl?.['hành_vi'])
+      ? viTpl!['hành_vi']
+      : [];
+    rawBehaviors = rawBehaviors.concat(
+      viBehaviors
+        .filter((b: any) => b?.['mã'] && /^\d+$/.test(String(b['mã'])))
+        .map((b: any) => ({ id: String(b['mã']), name: b['tên'] })),
+    );
+
+    if (dto.goal !== AdsGoal.MESSAGE && rawBehaviors.length) {
+      const unique = Array.from(
+        new Map(rawBehaviors.map((b) => [b.id, b])).values(),
+      ).slice(0, 10);
+      const valid = await this.validateBehaviors(unique, adAccountId, fb);
+      if (valid.length) this.mergeFlex(targeting, { behaviors: valid });
     }
 
-    return this.normalizeTargetingForCreation(targeting)
+    // --- AUDIENCE SAFETY CHECK ---
+    let totalInterests =
+      targeting.flexible_spec
+        ?.map((fs) => fs.interests?.length || 0)
+        .reduce((a, b) => a + b, 0) || 0;
+
+    if (totalInterests === 0) {
+      // Không có interest nào → cho phép Facebook mở rộng
+      this.logger.warn(
+        `[FacebookAdsService] ⚠️ No interests found → enable Advantage Audience`,
+      );
+      targeting.targeting_automation = { advantage_audience: 1 };
+    } else if (totalInterests > 0 && totalInterests < 3) {
+      // Có nhưng quá ít → bổ sung thêm từ AI
+      this.logger.warn(
+        `[FacebookAdsService] ⚠️ Too few interests (${totalInterests}) → asking AI for fallback`,
+      );
+      const fallback = await this.suggestFallbackInterests(dto, fb);
+      if (fallback.length) {
+        this.mergeFlex(targeting, { interests: fallback });
+        totalInterests += fallback.length;
+      }
+    }
+
+    // --- FINAL FILTER: remove niche interests (film, movie, show…) ---
+    if (targeting.flexible_spec) {
+      targeting.flexible_spec = targeting.flexible_spec
+        .map((fs) => {
+          if (!fs.interests) return fs;
+          return {
+            ...fs,
+            interests: fs.interests.filter(
+              (i) => !/film|movie|show|penguin|cartoon/i.test(i.name),
+            ),
+          };
+        })
+        .filter((fs) => fs.interests && fs.interests.length > 0);
+    }
+
+    // --- FINAL GEO CHECK ---
+    if (!targeting.geo_locations || Object.keys(targeting.geo_locations).length === 0) {
+      this.logger.warn(
+        `[FacebookAdsService] ⚠️ geo_locations lost after merge → reset to VN`,
+      );
+      targeting.geo_locations = { countries: ['VN'] };
+    }
+
+    return this.normalizeTargetingForCreation(targeting);
   }
 
-  // =============== Upload ảnh ===============
+
+
+  private async suggestFallbackInterests(
+    dto: AnyDto,
+    fb: AxiosInstance,
+  ): Promise<Array<{ id: string; name: string }>> {
+    const systemPrompt = `Bạn là chuyên gia Facebook Ads. 
+  Nhiệm vụ: gợi ý các interest broad nhưng phù hợp ngành hàng để mở rộng audience. 
+  Trả về JSON dạng {"interests":[{"name":"..."},{"name":"..."}]}`;
+
+    const userPrompt = `
+    Tôi muốn chạy quảng cáo Facebook.
+    Mục tiêu: ${dto.goal}
+    Tên chiến dịch: ${dto.campaignName}
+    Caption: ${dto.caption || ""}
+    Sản phẩm: ${dto?.targetingAI?.['sản phẩm'] || ""}
+    Hãy gợi ý 5 interest broad phổ biến nhất, dễ target, liên quan sản phẩm hoặc ngành hàng này.
+  `;
+
+    try {
+      const body: any = {
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 500,
+        // @ts-ignore
+        response_format: { type: 'json_object' },
+      };
+
+      const res = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        body,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        },
+      );
+
+      const content = res.data?.choices?.[0]?.message?.content;
+      if (!content) return [];
+
+      const parsed = JSON.parse(content);
+      const names: string[] = Array.isArray(parsed?.interests)
+        ? parsed.interests.map((i: any) => i.name).filter(Boolean)
+        : [];
+
+      if (!names.length) return [];
+
+      // ⚡️ Log GPT output
+      this.logger.log(
+        `[FacebookAdsService] ✅ GPT fallback interests: ${JSON.stringify(names)}`,
+      );
+
+      // Lookup ID bằng Facebook API
+      const lookedUp = await this.searchInterestsByNames(names, fb);
+
+      // ⚡️ Log sau khi lookup
+      this.logger.log(
+        `[FacebookAdsService] ✅ Lookup result interests: ${JSON.stringify(
+          lookedUp.map((x) => ({ id: x.id, name: x.name })),
+        )}`,
+      );
+
+      return lookedUp.slice(0, 5);
+    } catch (e: any) {
+      this.logger.error(`❌ suggestFallbackInterests error: ${e.message}`);
+      return [];
+    }
+  }
+
+
+
+  /** ===================== Upload ảnh ===================== */
   private async uploadAdImageFromUrl(adAccountId: string, imageUrl: string, fb: AxiosInstance): Promise<string> {
     const parseHash = (data: any): string | undefined => {
       try {
@@ -418,7 +765,7 @@ export class FacebookAdsService {
     throw new BadRequestException('Thiếu ảnh cho quảng cáo: vui lòng truyền imageHash hoặc imageUrl.')
   }
 
-  // ====== Lead Form helpers ======
+  /** ===================== Lead Form helpers ===================== */
   private async pickLatestPublishedLeadFormId(pageId: string, fb: AxiosInstance): Promise<string | null> {
     try {
       const { data } = await fb.get(`/${pageId}/leadgen_forms`, {
@@ -437,7 +784,6 @@ export class FacebookAdsService {
     }
   }
 
-  /** Tạo 1 Instant Form mặc định */
   private async createBasicLeadForm(pageId: string, fb: AxiosInstance, name = 'Form cơ bản - Họ tên + SĐT') {
     const questions = [{ type: 'FULL_NAME' }, { type: 'PHONE' }];
     const thank_you_page = { title: 'Cảm ơn bạn!', body: 'Chúng tôi sẽ liên hệ sớm.', button_type: 'NONE' };
@@ -465,10 +811,23 @@ export class FacebookAdsService {
     return created
   }
 
-  // =============== Flow chính (create) ===============
+  /** ===================== Flow chính (create) ===================== */
+  private normalizeGoal(g: any): AdsGoal {
+    if (typeof g === 'string') {
+      const s = g.toLowerCase();
+      if (s === 'message' || s === 'messages' || s === 'conversations') return AdsGoal.MESSAGE;
+      if (s === 'engagement') return AdsGoal.ENGAGEMENT;
+      if (s === 'traffic') return AdsGoal.TRAFFIC;
+      if (s === 'leads' || s === 'lead') return AdsGoal.LEADS;
+      return AdsGoal.ENGAGEMENT;
+    }
+    return g ?? AdsGoal.ENGAGEMENT;
+  }
+
   async createFacebookAd(dto0: CreateFacebookAdDto, user: User) {
     try {
       const dto = dto0 as AnyDto
+      dto.goal = this.normalizeGoal(dto.goal)
 
       this.logger.log(`STEP 0: Input DTO & user loaded`)
       const userData = await this.userRepo.findOne({ where: { email: user.email } })
@@ -682,11 +1041,10 @@ export class FacebookAdsService {
         return { id: res4.data.id }
       }
 
-      // Incompatible goal: nới dần (1) bỏ behaviors, (2) giảm bớt interests, (3) broad
+      // Incompatible goal: nới dần
       if (/performance goal|mục tiêu hiệu quả|incompatible/i.test(msg)) {
         let patched = { ...currentPayload };
 
-        // (1) bỏ behaviors trước nếu có
         if (patched?.flexible_spec?.some((fs: any) => fs.behaviors)) {
           const flex = patched.flexible_spec.map((fs: any) => {
             if (fs.behaviors) { const { behaviors, ...rest } = fs; return rest; }
@@ -701,7 +1059,6 @@ export class FacebookAdsService {
           } catch { }
         }
 
-        // (2) nếu vẫn fail: chỉ giữ tối đa 5 interests (nhóm đầu tiên có interests)
         const hasInterests = patched?.flexible_spec?.some((fs: any) => Array.isArray(fs.interests) && fs.interests.length);
         if (hasInterests) {
           const flex = patched.flexible_spec.map((fs: any) => {
@@ -719,7 +1076,6 @@ export class FacebookAdsService {
           } catch { }
         }
 
-        // (3) cuối cùng: broad (bỏ flexible_spec)
         if (patched?.flexible_spec) {
           const { flexible_spec, ...rest } = patched;
           this.logger.warn('⚠️ Incompatible → retry BROAD (no flexible_spec)');
@@ -754,7 +1110,6 @@ export class FacebookAdsService {
       }
     }
 
-    // Fallback sang campaign objective khác nếu tất cả fail
     const baseObjective = this.mapCampaignObjective(dto.goal)
     const fallbackObjectives = ['OUTCOME_ENGAGEMENT', 'OUTCOME_AWARENESS', 'OUTCOME_TRAFFIC'].filter(obj => obj !== baseObjective)
 
@@ -791,7 +1146,7 @@ export class FacebookAdsService {
     )
   }
 
-  // =============== Creative ===============
+  /** ===================== Creative ===================== */
   private async createCreative(
     dto0: CreateFacebookAdDto,
     adAccountId: string,
@@ -801,7 +1156,6 @@ export class FacebookAdsService {
     try {
       const dto = dto0 as AnyDto
 
-      // LEADS
       if (dto.goal === AdsGoal.LEADS) {
         let formId = dto.leadgenFormId
         if (!formId) {
@@ -829,7 +1183,6 @@ export class FacebookAdsService {
         return res.data.id
       }
 
-      // TRAFFIC
       if (dto.goal === AdsGoal.TRAFFIC) {
         const link = (dto.urlWebsite || dto.linkUrl || '').trim()
         if (!/^https?:\/\//i.test(link) || /facebook\.com|fb\.com/i.test(link)) {
@@ -854,7 +1207,6 @@ export class FacebookAdsService {
         return res.data.id
       }
 
-      // MESSAGE
       if (dto.goal === AdsGoal.MESSAGE) {
         const destination = (dto.messageDestination || 'MESSENGER') as 'MESSENGER' | 'WHATSAPP' | 'INSTAGRAM_DIRECT'
         const imgHash = dto.imageHash || await this.ensureImageHash(dto, adAccountId, fb)
@@ -863,6 +1215,8 @@ export class FacebookAdsService {
         if (destination === 'WHATSAPP') {
           if (!dto.whatsappNumber) throw new BadRequestException('Thiếu whatsappNumber cho Click-to-WhatsApp.')
           call_to_action = { type: 'WHATSAPP_MESSAGE', value: { app_destination: 'WHATSAPP', whatsapp_number: dto.whatsappNumber } }
+        } else if (destination === 'INSTAGRAM_DIRECT') {
+          call_to_action = { type: 'INSTAGRAM_MESSAGE', value: { app_destination: 'INSTAGRAM' } }
         } else {
           call_to_action = { type: 'MESSAGE_PAGE', value: { app_destination: 'MESSENGER' } }
         }
@@ -897,7 +1251,7 @@ export class FacebookAdsService {
     }
   }
 
-  // =============== Fallback Awareness (pixel) ===============
+  /** ===================== Fallback Awareness (pixel) ===================== */
   private async createAwarenessFallbackAndAd(
     dto: AnyDto,
     adAccountId: string,
@@ -943,7 +1297,7 @@ export class FacebookAdsService {
     return { ad: adRes.data, fbCampaignId, fbAdSetId }
   }
 
-  // =============== Ad ===============
+  /** ===================== Ad ===================== */
   private async createAd(
     dto0: CreateFacebookAdDto,
     adSetId: string,
@@ -1029,298 +1383,9 @@ export class FacebookAdsService {
     }
   }
 
-  // ================== UPDATE GỐC + APPLY FACEBOOK ==================
-  // async updateAdInsight(id: string, dto: AdInsightUpdateDTO) {
-  //   try {
-  //     this.logger.log(`STEP updateAdInsight: id=${id} isActive=${dto.isActive}`);
-
-  //     const adInsight = await this.adInsightRepo
-  //       .createQueryBuilder('adInsight')
-  //       .where('adInsight.id=:id', { id })
-  //       .getOne();
-  //     if (!adInsight) throw new BadRequestException(`Không tìm thấy AdInsight id=${id}`);
-
-  //     if (typeof dto.isActive === 'boolean') adInsight.isActive = dto.isActive;
-
-  //     const saved = await this.adInsightRepo.save(adInsight);
-  //     this.logger.log(`STEP updateAdInsight DONE`);
-
-  //     let fbApplied: any = null;
-  //     let fbError: string | null = null;
-
-  //     try {
-  //       fbApplied = await this.applyFromAdInsight(adInsight);
-  //     } catch (e: any) {
-  //       fbError = e?.response?.data?.error?.error_user_msg || e?.message || String(e);
-  //       this.logger.error('❌ applyFromAdInsight failed:', e?.response?.data || e);
-  //     }
-
-  //     return { ...saved, fbApplied, fbError };
-
-  //   } catch (error: any) {
-  //     const errorMessage = error?.response?.data?.error?.error_user_msg || error.message;
-  //     this.logger.error('❌ updateAdInsight failed:', error?.response?.data || error);
-  //     throw new BadRequestException(`Cập nhập quảng cáo thất bại: ${errorMessage}`);
-  //   }
-  // }
-
-  // ================== HELPERS: chỉ dùng nội bộ ==================
-
-  // 1) Rút “plan” từ AdInsight
-  private extractPlanFromAdInsight(ad: AdInsight): any | null {
-    if (ad.engagementDetails) {
-      try {
-        const obj = JSON.parse(ad.engagementDetails);
-        if (obj && typeof obj === 'object') return obj;
-      } catch { }
-    }
-    const text = `${ad.recommendation || ''}\n${ad.htmlReport || ''}`;
-    const m = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-    if (m) {
-      try {
-        const obj = JSON.parse(m[0]);
-        if (obj && typeof obj === 'object') return obj;
-      } catch { }
-    }
-    return null;
-  }
-
-  // 2) Lấy user + fb context
-  // private async getAdContextByAdId(
-  //   adId: string,
-  //   userLookup: { userId?: string | null; email?: string | null }
-  // ) {
-  //   const toData = async <T>(p: Promise<any>): Promise<T> => (await p).data as T;
-
-  //   const userData =
-  //     (userLookup.userId
-  //       ? await this.userRepo.findOne({ where: { id: userLookup.userId } })
-  //       : null) ||
-  //     (userLookup.email
-  //       ? await this.userRepo.findOne({ where: { email: userLookup.email } })
-  //       : null);
-
-  //   if (!userData) throw new BadRequestException('Không tìm thấy user cho adInsight.');
-  //   const { accessTokenUser, cookie, accountAdsId, idPage } = userData;
-  //   if (!accessTokenUser) throw new BadRequestException('Thiếu accessTokenUser.');
-
-  //   const fb = this.fb(accessTokenUser, cookie, 'v23.0');
-
-  //   const ad = await toData<any>(
-  //     fb.get(`/${adId}`, {
-  //       params: {
-  //         fields:
-  //           'id,name,status,adset_id,campaign_id,creative{effective_object_story_id,object_story_spec}',
-  //       },
-  //     })
-  //   );
-  //   if (!ad?.adset_id || !ad?.campaign_id) {
-  //     throw new BadRequestException(`Ad thiếu adset_id/campaign_id (adId=${adId}).`);
-  //   }
-
-  //   const [adset, campaign] = await Promise.all([
-  //     toData<any>(
-  //       fb.get(`/${ad.adset_id}`, {
-  //         params: {
-  //           fields:
-  //             'id,name,status,effective_targeting,targeting,daily_budget,lifetime_budget,optimization_goal,billing_event',
-  //         },
-  //       })
-  //     ),
-  //     toData<any>(
-  //       fb.get(`/${ad.campaign_id}`, {
-  //         params: { fields: 'id,name,status,objective' },
-  //       })
-  //     ),
-  //   ]);
-
-  //   return { fb, userData, ad, adset, campaign, adAccountId: accountAdsId, pageId: idPage };
-  // }
-
-  // 3) Merge targeting theo plan
-  private mergeTargeting(current: TargetingSpec, plan: any): TargetingSpec {
-    const t: TargetingSpec = { ...(current || {}) };
-
-    if (plan.set_auto_placements) {
-      delete t.publisher_platforms;
-      delete t.facebook_positions;
-      delete t.instagram_positions;
-      delete t.device_platforms;
-    }
-    if (plan.expand_audience === true) {
-      (t as any).targeting_automation = { advantage_audience: 1 };
-    }
-    if (plan.age_range?.min) t.age_min = Number(plan.age_range.min);
-    if (plan.age_range?.max) t.age_max = Number(plan.age_range.max);
-    if (Array.isArray(plan.genders)) t.genders = plan.genders;
-    if (Array.isArray(plan.locales)) t.locales = plan.locales;
-
-    if (plan.geo) {
-      t.geo_locations = {
-        ...(t.geo_locations || {}),
-        ...(plan.geo.countries ? { countries: plan.geo.countries } : {}),
-        ...(plan.geo.cities ? { cities: plan.geo.cities } : {}),
-        ...(plan.geo.regions ? { regions: plan.geo.regions } : {}),
-        ...(plan.geo.location_types ? { location_types: plan.geo.location_types } : {}),
-      };
-      // nếu plan có custom_locations
-      if (Array.isArray(plan.geo.custom_locations) && plan.geo.custom_locations.length) {
-        t.geo_locations = {
-          ...(t.geo_locations || {}),
-          custom_locations: plan.geo.custom_locations,
-        }
-      }
-    }
-
-    // thêm interests/behaviors vào flexible_spec
-    const flexAdd: any = {};
-    if (Array.isArray(plan.add_interests) && plan.add_interests.length > 0) {
-      flexAdd.interests = plan.add_interests.filter((i: any) => i?.id && i?.name);
-    }
-    if (Array.isArray(plan.add_behaviors) && plan.add_behaviors.length > 0) {
-      flexAdd.behaviors = plan.add_behaviors.filter((b: any) => b?.id);
-    }
-    if (Object.keys(flexAdd).length) this.mergeFlex(t, flexAdd);
-
-    if (plan.exclusions && typeof plan.exclusions === 'object') {
-      t.exclusions = { ...(t.exclusions || {}), ...plan.exclusions };
-    }
-    return this.normalizeTargetingForCreation(t);
-  }
-
-  // 4) Update ad set (pause → update → resume)
-  private async updateAdsetTargetingAndBudget(args: {
-    fb: any; adsetId: string; newTargeting: TargetingSpec; budget?: { increase_percent?: number; set_daily_budget?: number };
-  }) {
-    const { fb, adsetId, newTargeting, budget } = args;
-    const { data: cur } = await fb.get(`/${adsetId}`, { params: { fields: 'id,status,daily_budget' } });
-    const wasActive = cur?.status === 'ACTIVE';
-    if (wasActive) await fb.post(`/${adsetId}`, qs.stringify({ status: 'PAUSED' }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-
-    const payload: any = { targeting: JSON.stringify(this.normalizeTargetingForCreation(newTargeting)) };
-    if (budget) {
-      if (typeof budget.set_daily_budget === 'number') {
-        payload.daily_budget = `${Math.round(budget.set_daily_budget)}`;
-      } else if (typeof budget.increase_percent === 'number' && cur?.daily_budget) {
-        const old = Number(cur.daily_budget);
-        const inc = Math.round(old * (1 + budget.increase_percent / 100));
-        payload.daily_budget = `${inc}`;
-      }
-    }
-    await fb.post(`/${adsetId}`, qs.stringify(payload), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-    if (wasActive) await fb.post(`/${adsetId}`, qs.stringify({ status: 'ACTIVE' }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-
-    return payload;
-  }
-
-  // 5) (Tuỳ) tạo A/B creative cho mục tiêu nhắn tin
-  private async abTestNewMessageAds(args: {
-    fb: any; adAccountId: string; pageId?: string | null; adsetId: string; oldAdId?: string;
-    variants: Array<{ name: string; primaryText: string; imageHash?: string }>;
-  }) {
-    const { fb, adAccountId, pageId, adsetId, oldAdId, variants } = args;
-    if (oldAdId) { try { await fb.post(`/${oldAdId}`, qs.stringify({ status: 'PAUSED' }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }); } catch { } }
-    const created: any[] = [];
-    for (const v of variants) {
-      const creative = await fb.post(`/${adAccountId}/adcreatives`,
-        qs.stringify({
-          name: `[A/B] ${v.name}`,
-          object_story_spec: JSON.stringify({
-            page_id: pageId,
-            link_data: { image_hash: v.imageHash, message: v.primaryText, call_to_action: { type: 'MESSAGE_PAGE' } }
-          })
-        }),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-      );
-      const ad = await fb.post(`/${adAccountId}/ads`,
-        qs.stringify({
-          name: v.name,
-          adset_id: adsetId,
-          creative: JSON.stringify({ creative_id: (creative.data?.id || creative?.id) }),
-          status: 'ACTIVE'
-        }),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-      );
-      created.push({ ad_id: (ad.data?.id || ad?.id), creative_id: (creative.data?.id || creative?.id), name: v.name });
-    }
-    return created;
-  }
-
-  // 6) Áp plan lên FB
-  // private async applyFromAdInsight(adInsight: AdInsight) {
-  //   const plan = this.extractPlanFromAdInsight(adInsight);
-  //   if (!plan) throw new BadRequestException(`Không tìm thấy kế hoạch tối ưu trong AdInsight (engagementDetails/recommendation/htmlReport).`);
-  //   if (!adInsight.adId) throw new BadRequestException(`AdInsight thiếu adId.`);
-
-  //   const { fb, ad, adset, adAccountId, pageId } = await this.getAdContextByAdId(
-  //     adInsight.adId,
-  //     { userId: adInsight.userId || null, email: adInsight.createdByEmail || null }
-  //   );
-
-  //   const newTargeting = this.mergeTargeting(adset?.effective_targeting || adset?.targeting || {}, plan);
-  //   const updatePayload = await this.updateAdsetTargetingAndBudget({
-  //     fb,
-  //     adsetId: ad.adset_id,
-  //     newTargeting,
-  //     budget: plan.budget
-  //   });
-
-  //   let createdAds: any[] = [];
-  //   if (plan.ab_test?.variants?.length && adAccountId) {
-  //     createdAds = await this.abTestNewMessageAds({
-  //       fb,
-  //       adAccountId,
-  //       pageId,
-  //       adsetId: ad.adset_id,
-  //       oldAdId: plan.ab_test.pause_old_ad ? ad.id : undefined,
-  //       variants: plan.ab_test.variants
-  //     });
-  //   }
-
-  //   return {
-  //     adId: ad.id,
-  //     adsetId: ad.adset_id,
-  //     applied: { targeting: true, budget: !!plan.budget, ab_test_created: createdAds.length },
-  //     details: { updatePayload, createdAds, plan }
-  //   };
-  // }
-
-  // ====== tiện ích ======
+  /** ===================== Insights & listing ===================== */
   private uniq<T>(arr: T[]): T[] { return Array.from(new Set(arr)); }
   private sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
-
-  // =============== Insights & listing ===============
-
-  // Helper render vị trí ưu tiên custom_locations trước
-  private renderLocationSummary(tg: any) {
-    const geo = tg?.geo_locations || {};
-    if (Array.isArray(geo.custom_locations) && geo.custom_locations.length) {
-      const items = geo.custom_locations
-        .slice(0, 3)
-        .map((loc: any) => {
-          const lat = Number(loc.latitude);
-          const lng = Number(loc.longitude);
-          const radius = Number(loc.radius);
-          const unit = String(loc.distance_unit || 'mile');
-          const latStr = Number.isFinite(lat) ? lat.toFixed(4) : '?';
-          const lngStr = Number.isFinite(lng) ? lng.toFixed(4) : '?';
-          const rStr = Number.isFinite(radius) ? `${radius} ${unit}` : '';
-          return `${latStr},${lngStr}${rStr ? ` (${rStr})` : ''}`;
-        });
-      return { type: 'custom_locations', text: items.join(' • '), raw: geo.custom_locations };
-    }
-
-    if (Array.isArray(geo.cities) && geo.cities.length) {
-      const items = geo.cities.slice(0, 3).map((c: any) => c?.name || c?.key || 'City');
-      return { type: 'cities', text: items.join(' • '), raw: geo.cities };
-    }
-
-    if (Array.isArray(geo.countries) && geo.countries.length) {
-      return { type: 'countries', text: geo.countries.slice(0, 5).join(', '), raw: geo.countries };
-    }
-
-    return { type: 'none', text: 'Không giới hạn', raw: null };
-  }
 
   private async fetchCampaignInsights(args: {
     apiVersion: string;
@@ -1385,6 +1450,33 @@ export class FacebookAdsService {
 
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, adsetIds.length) }, worker));
     return out;
+  }
+
+  private renderLocationSummary(tg: any) {
+    const geo = tg?.geo_locations || {};
+    if (Array.isArray(geo.custom_locations) && geo.custom_locations.length) {
+      const items = geo.custom_locations
+        .slice(0, 3)
+        .map((loc: any) => {
+          const lat = Number(loc.latitude);
+          const lng = Number(loc.longitude);
+          const radius = Number(loc.radius);
+          const unit = String(loc.distance_unit || 'mile');
+          const latStr = Number.isFinite(lat) ? lat.toFixed(4) : '?';
+          const lngStr = Number.isFinite(lng) ? lng.toFixed(4) : '?';
+          const rStr = Number.isFinite(radius) ? `${radius} ${unit}` : '';
+          return `${latStr},${lngStr}${rStr ? ` (${rStr})` : ''}`;
+        });
+      return { type: 'custom_locations', text: items.join(' • '), raw: geo.custom_locations };
+    }
+    if (Array.isArray(geo.cities) && geo.cities.length) {
+      const items = geo.cities.slice(0, 3).map((c: any) => c?.name || c?.key || 'City');
+      return { type: 'cities', text: items.join(' • '), raw: geo.cities };
+    }
+    if (Array.isArray(geo.countries) && geo.countries.length) {
+      return { type: 'countries', text: geo.countries.slice(0, 5).join(', '), raw: geo.countries };
+    }
+    return { type: 'none', text: 'Không giới hạn', raw: null };
   }
 
   async listAds(opts: ListOpts = {}, config: any) {
@@ -1512,7 +1604,6 @@ export class FacebookAdsService {
       this.logger.log(`STEP listAds: fetch adset targeting for ${adsetsOfTop.length} adsets`)
       const adsetTargeting = await this.fetchAdsetTargetingBatch({ apiVersion, fb, adsetIds: adsetsOfTop });
 
-      // summarizeTargeting có thêm custom_locations
       const summarizeTargeting = (items: Array<{ targeting: any }>) => {
         const countries = new Set<string>();
         const cities: Array<{ key: string; name?: string }> = [];
@@ -1527,7 +1618,6 @@ export class FacebookAdsService {
           (geo.countries || []).forEach((c: string) => countries.add(c));
           (geo.cities || []).forEach((c: any) => cities.push({ key: String(c.key ?? c.name ?? ''), name: c.name }));
 
-          // custom_locations
           if (Array.isArray(geo.custom_locations)) {
             for (const loc of geo.custom_locations) {
               const lat = Number(loc.latitude);
@@ -1544,7 +1634,6 @@ export class FacebookAdsService {
           if (typeof tg.age_max === 'number') age.max = Math.max(age.max, tg.age_max);
           (tg.genders || []).forEach((g: number) => genders.add(g));
 
-          // root interests + flexible_spec interests
           if (Array.isArray(tg.interests)) {
             tg.interests.forEach((i: any) => {
               const id = String(i?.id ?? ''); if (id) interestMap.set(id, i.name || id);
@@ -1592,7 +1681,6 @@ export class FacebookAdsService {
         const adsets = adsetsByCamp[x.campaign_id] || [];
         const summary = summarizeTargeting(adsets);
 
-        // Dựng chuỗi hiển thị vị trí có ưu tiên custom_locations
         let locationText = 'Không giới hạn';
         if (summary.custom_locations?.length) {
           locationText = summary.custom_locations
@@ -1629,7 +1717,7 @@ export class FacebookAdsService {
     }
   }
 
-  // =============== Pause/Status ===============
+  /** ===================== Pause/Status ===================== */
   private async pauseAd(adId: string, fb: AxiosInstance) {
     try {
       this.logger.log(`STEP pauseAd → POST /${adId}`)
@@ -1679,4 +1767,10 @@ export class FacebookAdsService {
       throw new BadRequestException(`Cập nhật trạng thái quảng cáo thất bại: ${message}`)
     }
   }
+
+  /** ===================== (Optional stubs to keep file parity) ===================== */
+
+  // private extractPlanFromAdInsight(...) { ... } // giữ nguyên nếu cần dùng sau
+  // private updateAdsetTargetingAndBudget(...) { ... }
+  // private abTestNewMessageAds(...) { ... }
 }

@@ -1,5 +1,8 @@
+// src/.../create-facebook-ad.dto.ts
 import { Type } from 'class-transformer'
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -26,7 +29,13 @@ export enum MessageDestination {
   INSTAGRAM_DIRECT = 'INSTAGRAM_DIRECT',
 }
 
-class LocationDto {
+export enum DistanceUnit {
+  KILOMETER = 'kilometer',
+  MILE = 'mile',
+}
+
+/** ==== (Deprecated) Single point + radius – giữ để tương thích ngược ==== */
+class LegacyLocationDto {
   @IsNumber()
   lat: number
 
@@ -34,6 +43,50 @@ class LocationDto {
   lng: number
 }
 
+/** ==== geo_locations (đúng chuẩn Graph API) ==== */
+class GeoCityDto {
+  @IsString()
+  key: string
+
+  @IsOptional()
+  @IsNumber()
+  /** km (Graph cho phép mi hoặc km; ở đây bạn đang gửi kilometer) */
+  radius?: number
+
+  @IsOptional()
+  @IsEnum(DistanceUnit)
+  distance_unit?: DistanceUnit
+}
+
+class GeoCustomLocationDto {
+  @IsNumber()
+  latitude: number
+
+  @IsNumber()
+  longitude: number
+
+  @IsNumber()
+  /** km */
+  radius: number
+
+  @IsEnum(DistanceUnit)
+  distance_unit: DistanceUnit
+}
+
+class GeoLocationsDto {
+  /** Các field khác (countries/regions/subcities/zip) có thể bổ sung sau nếu cần */
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => GeoCityDto)
+  cities?: GeoCityDto[]
+
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => GeoCustomLocationDto)
+  custom_locations?: GeoCustomLocationDto[]
+}
+
+/** ==== DTO chính ==== */
 export class CreateFacebookAdDto {
   @IsEnum(AdsGoal)
   goal: AdsGoal
@@ -61,21 +114,34 @@ export class CreateFacebookAdDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(2)
+  @Type(() => Number)
+  @IsNumber({}, { each: true })
   ageRange?: [number, number]
 
+  /** ==== Khối mới: geo_locations (đa điểm) ==== */
   @IsOptional()
   @ValidateNested()
-  @Type(() => LocationDto)
-  location?: LocationDto
+  @Type(() => GeoLocationsDto)
+  geo_locations?: GeoLocationsDto
+
+  /** ==== (Deprecated) single point + radius – vẫn cho phép để không phá API cũ ==== */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => LegacyLocationDto)
+  location?: LegacyLocationDto
 
   @IsOptional()
   @IsNumber()
-  /** miles */
+  /** miles (legacy) */
   radius?: number
 
+  /** detailedTargeting: mảng string (vd interest keywords) */
   @IsOptional()
   @IsArray()
-  detailedTargeting?: [string, string]
+  @IsString({ each: true })
+  detailedTargeting?: string[]
 
   @IsDateString()
   startTime: string
@@ -97,9 +163,8 @@ export class CreateFacebookAdDto {
   @IsString()
   urlPost?: string
 
-  // ====== Thêm để hỗ trợ Click-to-Message (CTM) ======
-
-  /** Mặc định MESSENGER nếu không truyền */
+  // ====== Click-to-Message (CTM) ======
+  /** Mặc định MESSENGER nếu không truyền (set mặc định ở service) */
   @IsOptional()
   @IsEnum(MessageDestination)
   messageDestination?: MessageDestination
@@ -110,7 +175,7 @@ export class CreateFacebookAdDto {
   @IsString()
   whatsappNumber?: string
 
-  /** 1 trong 2 phải có khi goal = MESSAGE (service sẽ kiểm tra và upload nếu chỉ có imageUrl) */
+  /** 1 trong 2 phải có khi goal = MESSAGE (service sẽ kiểm tra & upload nếu chỉ có imageUrl) */
   @ValidateIf(o => o.goal === AdsGoal.MESSAGE)
   @IsOptional()
   @IsString()
@@ -126,8 +191,7 @@ export class CreateFacebookAdDto {
   @IsUrl()
   linkUrl?: string
 
-  // ================================================
-
+  /** targetingAI: để linh hoạt, nhận bất kỳ cấu trúc (VN keys) */
   @IsOptional()
   targetingAI?: any
 }

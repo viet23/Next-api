@@ -11,10 +11,11 @@ import { AdInsight } from '@models/ad-insight.entity'
 import { FacebookPostModule } from 'src/facebook-post/facebook-post.module'
 import { FacebookAdsUpdateService } from './facebook-ads-update.service'
 import { AiPlannerService } from './ai-planner.service'
+import { TargetingSearchService } from './targeting-search.service'
 
 @Module({
   imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd,AdInsight]), CqrsModule,FacebookPostModule],
-  providers: [FacebookAdsService , AiPlannerService, FacebookAdsUpdateService],
+  providers: [FacebookAdsService , AiPlannerService, FacebookAdsUpdateService ,TargetingSearchService],
   controllers: [FacebookAdsController],
   exports: [FacebookAdsService],
 })
