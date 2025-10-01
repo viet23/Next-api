@@ -12,10 +12,11 @@ import { FacebookPostModule } from 'src/facebook-post/facebook-post.module'
 import { FacebookAdsUpdateService } from './facebook-ads-update.service'
 import { AiPlannerService } from './ai-planner.service'
 import { TargetingSearchService } from './targeting-search.service'
+import { SetStatusService } from './set-status.service'
 
 @Module({
   imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd,AdInsight]), CqrsModule,FacebookPostModule],
-  providers: [FacebookAdsService , AiPlannerService, FacebookAdsUpdateService ,TargetingSearchService],
+  providers: [FacebookAdsService , AiPlannerService, FacebookAdsUpdateService ,TargetingSearchService , SetStatusService],
   controllers: [FacebookAdsController],
   exports: [FacebookAdsService],
 })

@@ -28,6 +28,7 @@ import { AdInsightUpdateDTO } from './dto/ads-update.dto'
 import { UpdateAdStatusDto } from './dto/update-ad-status.dto'
 
 import { User } from '@models/user.entity'
+import { SetStatusService } from './set-status.service'
 
 @ApiTags('facebook-ads')
 @Controller('facebook-ads')
@@ -37,6 +38,9 @@ export class FacebookAdsController {
     private readonly fbpostService: FacebookPostService,
     private readonly fbAdsUpdate: FacebookAdsUpdateService,
     private readonly targetingSearch: TargetingSearchService,
+     private readonly setStatus: SetStatusService,
+
+    
     @InjectRepository(User) private readonly userRepo: Repository<User>,
   ) {}
 
@@ -96,7 +100,7 @@ export class FacebookAdsController {
   @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'adId', description: 'Facebook Ad ID (ví dụ: 1234567890)' })
   async setAdStatus(@Param('adId') adId: string, @Body() dto: UpdateAdStatusDto, @Authen() user: User) {
-    return this.fbService.setAdStatus({ adId, isActive: dto.isActive, user })
+    return this.setStatus.setAdStatus({ adId, isActive: dto.isActive, user })
   }
 
   // ⬇️ Proxy Targeting Search (tìm city/region/country/subcity) — dùng accessTokenUser từ DB
