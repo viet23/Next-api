@@ -120,6 +120,8 @@ export class CreateFacebookAdDto {
   @IsNumber({}, { each: true })
   ageRange?: [number, number]
 
+
+
   /** ==== Khối mới: geo_locations (đa điểm) ==== */
   @IsOptional()
   @ValidateNested()
@@ -137,6 +139,11 @@ export class CreateFacebookAdDto {
   /** miles (legacy) */
   radius?: number
 
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  numAds?: number
+
   /** detailedTargeting: mảng string (vd interest keywords) */
   @IsOptional()
   @IsArray()
@@ -153,8 +160,8 @@ export class CreateFacebookAdDto {
   @Min(1)
   dailyBudget: number
 
-  /** postId chỉ cần cho campaign KHÔNG phải MESSAGE */
-  @ValidateIf(o => o.goal !== AdsGoal.MESSAGE)
+  // /** postId chỉ cần cho campaign KHÔNG phải MESSAGE */
+  // @ValidateIf(o => o.goal !== AdsGoal.MESSAGE)
   @IsOptional()
   @IsString()
   postId?: string

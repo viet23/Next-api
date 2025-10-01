@@ -43,6 +43,7 @@ type AnyDto = CreateFacebookAdDto & {
   leadgenFormId?: string
   /** toggle mở Advantage Audience */
   aiTargeting?: boolean
+  numAds?: number; // số lượng ads muốn tạo, mặc định 1
   /** gợi ý AI (tiếng Anh) */
   targetingAI?: {
     keywordsForInterestSearch?: string[]
@@ -862,33 +863,40 @@ export class FacebookAdsService {
       const creativeId = await this.createCreative(dto, adAccountId, pageId, fb)
       this.logger.log(`STEP 4 DONE: creativeId=${creativeId}`)
 
-      this.logger.log(`STEP 5: Create Ad`)
-      const ad = await this.createAd(dto, adSetId, creativeId, adAccountId, usedCampaignId, pageId, fb)
-      this.logger.log(`STEP 5 DONE: adId=${ad.id}`)
+
+      this.logger.log(`STEP 5: Create Ads (numAds=${dto.numAds || 1})`)
+      const ads = await this.createMultipleAds(dto, adSetId, creativeId, adAccountId, usedCampaignId, pageId, fb)
+      this.logger.log(`STEP 5 DONE: created ${ads.length} ads`)
+
 
       this.logger.log(`STEP 6: Activate Campaign & AdSet`)
       await this.activateCampaign(usedCampaignId, fb)
       await this.activateAdSet(adSetId, fb)
       this.logger.log(`STEP 6 DONE`)
 
-      this.logger.log(`STEP 7: Save DB record`)
-      await this.facebookAdRepo.save({
-        adId: ad.id,
-        campaignName: dto.campaignName,
-        caption: dto.caption,
-        dataTargeting: dto,
-        urlPost: dto.urlPost,
-        objective: this.mapCampaignObjective(dto.goal),
-        startTime: new Date(dto.startTime),
-        endTime: new Date(dto.endTime),
-        dailyBudget: dto.dailyBudget,
-        status: 'ACTIVE',
-        createdBy: userData,
-      })
-      this.logger.log(`STEP 7 DONE: DB saved`)
+      this.logger.log(`STEP 7: Save DB records`)
+      for (const ad of ads) {
+        console.log(`adVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV`, ad);
+        
+        await this.facebookAdRepo.save({
+          adId: ad.id,
+          campaignName: ad.campaignName,
+          caption: dto.caption,
+          dataTargeting: dto,
+          urlPost: dto.urlPost,
+          objective: this.mapCampaignObjective(dto.goal),
+          startTime: new Date(dto.startTime),
+          endTime: new Date(dto.endTime),
+          dailyBudget: dto.dailyBudget,
+          status: 'ACTIVE',
+          createdBy: userData,
+        })
+      }
+      this.logger.log(`STEP 7 DONE: Saved ${ads.length} ads to DB`)
 
       this.logger.log(`STEP 8: Completed. Final perf goal: ${usedPerfGoal}`)
-      return ad
+      return ads
+
     } catch (error: any) {
       const errorMessage = error?.response?.data?.error?.error_user_msg || error.message
       this.logger.error('❌ createFacebookAd failed:', error?.response?.data || error)
@@ -1346,6 +1354,37 @@ export class FacebookAdsService {
       throw new BadRequestException(`Tạo quảng cáo thất bại: ${message}`)
     }
   }
+
+  /** ===================== Multiple Ads ===================== */
+  private async createMultipleAds(
+    dto: AnyDto,
+    adSetId: string,
+    creativeId: string,
+    adAccountId: string,
+    usedCampaignId: string,
+    pageId: string,
+    fb: AxiosInstance,
+  ) {
+    const ads: any[] = [];
+    const numAds = Math.max(1, Math.min(dto.numAds || 1, 10)); // tối đa 10 ads
+    const digits = String(numAds).length;                      // padding theo tổng số
+
+    for (let i = 0; i < numAds; i++) {
+      const ii = String(i + 1).padStart(digits, '0');
+      const adName = `AB ${ii} - ${dto.campaignName} `;
+
+      // truyền DTO "clone" để không ảnh hưởng dto gốc và DB step sau
+      const dtoPerAd: AnyDto = { ...dto, campaignName: adName };
+
+      this.logger.log(`STEP createAd [${i + 1}/${numAds}] name="${adName}"`);
+      const adRes = await this.createAd(dtoPerAd, adSetId, creativeId, adAccountId, usedCampaignId, pageId, fb);
+      adRes.campaignName = adName; // gán thêm để lưu DB
+      ads.push(adRes);
+    }
+    return ads;
+  }
+
+
 
   private async activateCampaign(campaignId: string, fb: AxiosInstance) {
     this.logger.log(`STEP activateCampaign → POST /${campaignId}`)
