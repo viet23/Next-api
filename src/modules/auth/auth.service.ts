@@ -19,6 +19,8 @@ export class AuthService {
             .where('email =:email', { email: data.email })
             .getOne()
 
+        const saved = await this.userRepo.save(user)
+
         if (!user) {
             user = new User()
             user.username = data.fullName
@@ -29,6 +31,11 @@ export class AuthService {
             const saved = await this.userRepo.save(user)
             console.log('saved', saved);
 
+        }
+
+        if (user && (!user.phone || user.phone.length == 0)) {
+            user.phone = data.phone
+            await this.userRepo.save(user)
         }
 
         return {

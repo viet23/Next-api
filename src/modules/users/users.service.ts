@@ -79,6 +79,7 @@ export class UsersService {
       await this.userRepo.save(user);
     }
 
+
     return user;
   }
 
@@ -135,7 +136,7 @@ export class UsersService {
 
   async updateToken(user: User, dto: UserDataSyncDto) {
     console.log(`UserDataSyncDto`, dto);
-    
+
     let userData = await this.userRepo.findOne({ where: { email: user.email } });
     if (!userData) {
       throw new UnauthorizedException('User not found');
@@ -184,7 +185,7 @@ export class UsersService {
       isPaid: false,
     });
 
-    const save =  this.userSubRepo.save(sub);
+    const save = this.userSubRepo.save(sub);
 
     user.isActive = true;
     this.userRepo.save(user);

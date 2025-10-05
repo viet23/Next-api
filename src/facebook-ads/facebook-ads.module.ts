@@ -13,9 +13,10 @@ import { FacebookAdsUpdateService } from './facebook-ads-update.service'
 import { AiPlannerService } from './ai-planner.service'
 import { TargetingSearchService } from './targeting-search.service'
 import { SetStatusService } from './set-status.service'
+import { FacebookCampaign } from '@models/facebook_campaign.entity'
 
 @Module({
-  imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd,AdInsight]), CqrsModule,FacebookPostModule],
+  imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd,AdInsight, FacebookCampaign]), CqrsModule,FacebookPostModule],
   providers: [FacebookAdsService , AiPlannerService, FacebookAdsUpdateService ,TargetingSearchService , SetStatusService],
   controllers: [FacebookAdsController],
   exports: [FacebookAdsService],

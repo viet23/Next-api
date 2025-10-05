@@ -13,6 +13,7 @@ import { Group } from './group.entity';
 import { FacebookAd } from './facebook-ad.entity';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { UserSubscription } from './user-subscription.entity';
+import { FacebookCampaign } from './facebook_campaign.entity';
 
 @Entity({ name: 'tbl_users' })
 export class User extends BaseEntity {
@@ -99,8 +100,12 @@ export class User extends BaseEntity {
   subscriptions: UserSubscription[];
 
 
-  @OneToMany(() => FacebookAd, (ad) => ad.createdBy)
+  @OneToMany(() => FacebookCampaign, (c) => c.createdBy)
+  facebookCampaigns: FacebookCampaign[];
+
+  @OneToMany(() => FacebookAd, (a) => a.createdBy)
   facebookAds: FacebookAd[];
+
 
   @BeforeInsert()
   @BeforeUpdate()

@@ -6,10 +6,10 @@ import { User } from '@models/user.entity'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { FacebookAd } from '@models/facebook-ad.entity'
-import { AdInsightUpdateDTO } from './dto/ads-update.dto'
 import FormData from 'form-data'
 import crypto from 'node:crypto'
-import { AdInsight } from '@models/ad-insight.entity'
+import { FacebookCampaign } from '@models/facebook_campaign.entity'
+import moment from 'moment'
 
 /** ===================== Types & DTO (extended) ===================== */
 type TargetingSpec = Record<string, any>;
@@ -111,9 +111,9 @@ function createFbGraphClient(opts: {
 @Injectable()
 export class FacebookAdsService {
   constructor(
-    @InjectRepository(AdInsight) private readonly adInsightRepo: Repository<AdInsight>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(FacebookAd) private readonly facebookAdRepo: Repository<FacebookAd>,
+    @InjectRepository(FacebookCampaign) private readonly facebookCampaignRepo: Repository<FacebookCampaign>,
   ) { }
 
   private readonly logger = new Logger(FacebookAdsService.name);
@@ -826,83 +826,240 @@ export class FacebookAdsService {
   }
 
   async createFacebookAd(dto0: CreateFacebookAdDto, user: User) {
-    try {
-      const dto = dto0 as AnyDto
-      dto.goal = this.normalizeGoal(dto.goal)
+    type AnyDto = CreateFacebookAdDto & {
+      contents?: string[];
+      images?: string[];
+      selectedPosts?: Array<{ id: string; caption?: string; permalink_url?: string }>;
+      postIds?: string[];
+      imageUrl?: string;
+      messageDestination?: 'MESSENGER' | 'WHATSAPP' | 'INSTAGRAM_DIRECT';
+      whatsappNumber?: string;
+    };
 
-      this.logger.log(`STEP 0: Input DTO & user loaded`)
-      const userData = await this.userRepo.findOne({ where: { email: user.email } })
-      if (!userData) throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`)
+    const dto = dto0 as AnyDto;
 
-      const { accessTokenUser, accountAdsId: adAccountId, idPage: pageId, cookie: rawCookie } = userData
-      if (!accessTokenUser) throw new BadRequestException(`Người dùng chưa liên kết Facebook hoặc thiếu accessTokenUser.`)
-      if (!adAccountId) throw new BadRequestException(`Người dùng chưa có accountAdsId. Vui lòng kiểm tra lại.`)
-      if (!pageId && dto.goal !== AdsGoal.LEADS) throw new BadRequestException(`Người dùng chưa liên kết Fanpage (idPage).`)
+    // --- Normalize goal ---
+    const normalizeGoal = (g: any) => {
+      const s = String(g || '').toLowerCase();
+      if (['message', 'messages', 'conversations'].includes(s)) return AdsGoal.MESSAGE;
+      if (s === 'traffic') return AdsGoal.TRAFFIC;
+      if (s === 'leads' || s === 'lead') return AdsGoal.LEADS; // convert ngay bên dưới
+      return AdsGoal.ENGAGEMENT;
+    };
+    dto.goal = normalizeGoal(dto.goal);
+    if (dto.goal === AdsGoal.LEADS) dto.goal = AdsGoal.ENGAGEMENT; // giữ flow hiện tại
 
-      if (dto.goal == AdsGoal.LEADS) {
-        dto.goal = AdsGoal.ENGAGEMENT
-      }
-      const fb = this.fb(accessTokenUser, rawCookie, 'v23.0')
+    // --- Load user & fb client ---
+    const userData = await this.userRepo.findOne({ where: { email: user.email } });
+    if (!userData) throw new BadRequestException(`Không tìm thấy user: ${user.email}`);
+    const { accessTokenUser, accountAdsId: adAccountId, idPage: pageId, cookie: rawCookie } = userData;
+    if (!accessTokenUser) throw new BadRequestException(`Thiếu accessTokenUser – vui lòng liên kết Facebook`);
+    if (!adAccountId) throw new BadRequestException(`Thiếu adAccountId`);
+    if (!pageId) throw new BadRequestException(`Thiếu idPage (fanpage)`);
 
-      this.logger.log(`STEP 1: Detect media kind (if needed)`)
-      const mediaKind: MediaKind = dto.goal === AdsGoal.ENGAGEMENT && dto.postId
-        ? await this.detectMediaKind(dto.postId, fb)
-        : 'unknown'
-      this.logger.log(`STEP 1 DONE: mediaKind=${mediaKind}`)
+    // time
+    const ensureIso = (label: string, val?: string) => {
+      if (!val || isNaN(Date.parse(val))) throw new BadRequestException(`${label} không đúng ISO 8601`);
+    };
+    ensureIso('startTime', dto.startTime);
+    ensureIso('endTime', dto.endTime);
 
-      this.logger.log(`STEP 2: Create Campaign`)
-      const campaignId = await this.createCampaign(dto, adAccountId, fb)
-      this.logger.log(`STEP 2 DONE: campaignId=${campaignId}`)
+    const fb = this.fb(accessTokenUser, rawCookie, 'v23.0');
 
-      this.logger.log(`STEP 3: Create AdSet with perf goal & destination`)
-      const { adSetId, usedCampaignId, usedPerfGoal } =
-        await this.createAdSetWithPerfGoalAndDestination(dto, campaignId, pageId, adAccountId, mediaKind, fb)
-      this.logger.log(`STEP 3 DONE: adSetId=${adSetId} usedCampaignId=${usedCampaignId} perf=${usedPerfGoal}`)
+    // --- 1) Create Campaign on Meta ---
+    const campaignId = await this.createCampaign(dto as any, adAccountId, fb);
 
-      this.logger.log(`STEP 4: Create Creative`)
-      const creativeId = await this.createCreative(dto, adAccountId, pageId, fb)
-      this.logger.log(`STEP 4 DONE: creativeId=${creativeId}`)
+    // --- 2) Create AdSet (targeting+budget) ---
+    const mediaKind: MediaKind =
+      dto.goal === AdsGoal.ENGAGEMENT && (dto as any).postId
+        ? await this.detectMediaKind((dto as any).postId!, fb)
+        : 'unknown';
 
+    const { adSetId, usedCampaignId } =
+      await this.createAdSetWithPerfGoalAndDestination(dto as any, campaignId, pageId!, adAccountId, mediaKind, fb);
 
-      this.logger.log(`STEP 5: Create Ads (numAds=${dto.numAds || 1})`)
-      const ads = await this.createMultipleAds(dto, adSetId, creativeId, adAccountId, usedCampaignId, pageId, fb)
-      this.logger.log(`STEP 5 DONE: created ${ads.length} ads`)
+    const metaCampaignId = usedCampaignId || campaignId;
+    const objective = this.mapCampaignObjective(dto.goal);
 
-
-      this.logger.log(`STEP 6: Activate Campaign & AdSet`)
-      await this.activateCampaign(usedCampaignId, fb)
-      await this.activateAdSet(adSetId, fb)
-      this.logger.log(`STEP 6 DONE`)
-
-      this.logger.log(`STEP 7: Save DB records`)
-      for (const ad of ads) {
-        console.log(`adVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV`, ad);
-        
-        await this.facebookAdRepo.save({
-          adId: ad.id,
-          campaignName: ad.campaignName,
-          caption: dto.caption,
-          dataTargeting: dto,
-          urlPost: dto.urlPost,
-          objective: this.mapCampaignObjective(dto.goal),
-          startTime: new Date(dto.startTime),
-          endTime: new Date(dto.endTime),
-          dailyBudget: dto.dailyBudget,
-          status: 'ACTIVE',
-          createdBy: userData,
-        })
-      }
-      this.logger.log(`STEP 7 DONE: Saved ${ads.length} ads to DB`)
-
-      this.logger.log(`STEP 8: Completed. Final perf goal: ${usedPerfGoal}`)
-      return ads
-
-    } catch (error: any) {
-      const errorMessage = error?.response?.data?.error?.error_user_msg || error.message
-      this.logger.error('❌ createFacebookAd failed:', error?.response?.data || error)
-      throw new BadRequestException(`Tạo quảng cáo thất bại: ${errorMessage}`)
+    // --- 3) UPSERT Campaign vào DB ---
+    let campaignEntity = await this.facebookCampaignRepo.findOne({ where: { campaignId: metaCampaignId } });
+    if (!campaignEntity) {
+      campaignEntity = this.facebookCampaignRepo.create({
+        campaignId: metaCampaignId,
+        name: dto.campaignName,
+        objective,
+        status: 'ACTIVE',
+        dailyBudget: dto.dailyBudget,
+        startTime: new Date(dto.startTime),
+        endTime: new Date(dto.endTime),
+        createdBy: userData,
+      });
+    } else {
+      campaignEntity.name = dto.campaignName;
+      campaignEntity.objective = objective;
+      campaignEntity.dailyBudget = dto.dailyBudget;
+      campaignEntity.startTime = new Date(dto.startTime);
+      campaignEntity.endTime = new Date(dto.endTime);
     }
+    await this.facebookCampaignRepo.save(campaignEntity);
+
+    // --- 4) Creative builders (per-item) ---
+    const createCreativeForMessage = async (imageUrl: string, message: string) => {
+      const imgHash = await this.uploadAdImageFromUrl(adAccountId, imageUrl, fb);
+      const destination = (dto.messageDestination || 'MESSENGER') as 'MESSENGER' | 'WHATSAPP' | 'INSTAGRAM_DIRECT';
+
+      let call_to_action: any;
+      if (destination === 'WHATSAPP') {
+        if (!dto.whatsappNumber) throw new BadRequestException('Thiếu whatsappNumber cho Click-to-WhatsApp');
+        call_to_action = { type: 'WHATSAPP_MESSAGE', value: { app_destination: 'WHATSAPP', whatsapp_number: dto.whatsappNumber } };
+      } else if (destination === 'INSTAGRAM_DIRECT') {
+        call_to_action = { type: 'INSTAGRAM_MESSAGE', value: { app_destination: 'INSTAGRAM' } };
+      } else {
+        call_to_action = { type: 'MESSAGE_PAGE', value: { app_destination: 'MESSENGER' } };
+      }
+
+      const linkUrl = dto.urlWebsite || 'https://www.alloneads.com/';
+      const object_story_spec = { page_id: pageId, link_data: { link: linkUrl, message: message || '', image_hash: imgHash, call_to_action } };
+
+      const res = await fb.post(
+        `/${adAccountId}/adcreatives`,
+        qs.stringify({ name: dto.campaignName, object_story_spec: JSON.stringify(object_story_spec) }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      return res.data.id as string;
+    };
+
+    const createCreativeForTraffic = async (imageUrl: string, message: string) => {
+      const link = (dto.urlWebsite || '').trim();
+      if (!/^https?:\/\//i.test(link) || /facebook\.com|fb\.com/i.test(link)) {
+        throw new BadRequestException('urlWebsite không hợp lệ cho LINK_CLICKS (phải là link ngoài Facebook).');
+      }
+      const imgHash = await this.uploadAdImageFromUrl(adAccountId, imageUrl, fb);
+      const link_data: any = { link, message: message || '', image_hash: imgHash, call_to_action: { type: 'LEARN_MORE', value: { link } } };
+      const object_story_spec = { page_id: pageId, link_data };
+
+      const res = await fb.post(
+        `/${adAccountId}/adcreatives`,
+        qs.stringify({ name: dto.campaignName, object_story_spec: JSON.stringify(object_story_spec) }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      return res.data.id as string;
+    };
+
+    const createCreativeForEngagement = async (postId: string) => {
+      const res = await fb.post(
+        `/${adAccountId}/adcreatives`,
+        qs.stringify({ name: dto.campaignName, object_story_id: postId }),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+      );
+      return res.data.id as string;
+    };
+
+    // --- 5) Xây items từ DTO (tạo ads theo số bài/ảnh) ---
+    type AdItem =
+      | { kind: 'ENGAGEMENT'; postId: string; caption?: string; urlPost?: string }
+      | { kind: 'MESSAGE' | 'TRAFFIC'; imageUrl: string; message: string; urlPost?: string };
+
+    const items: AdItem[] = [];
+    if (dto.goal === AdsGoal.ENGAGEMENT) {
+      const pool = (dto.selectedPosts && dto.selectedPosts.length)
+        ? dto.selectedPosts.map(p => ({ postId: p.id, caption: p.caption || '', urlPost: p.permalink_url }))
+        : (dto.postIds || []).map(id => ({ postId: id, caption: '', urlPost: undefined }));
+      if (!pool.length) throw new BadRequestException(`ENGAGEMENT cần 'selectedPosts[]' hoặc 'postIds[]'`);
+      for (const p of pool) items.push({ kind: 'ENGAGEMENT', postId: p.postId, caption: p.caption, urlPost: p.urlPost });
+    } else if (dto.goal === AdsGoal.MESSAGE || dto.goal === AdsGoal.TRAFFIC) {
+      const images = Array.isArray(dto.images) ? dto.images : [];
+      const contents = Array.isArray(dto.contents) ? dto.contents : [];
+      const n = Math.min(images.length, Math.max(contents.length, images.length));
+      if (n > 0) {
+        for (let i = 0; i < n; i++) {
+          const img = images[i] ?? images[0];
+          const msg = (contents[i] ?? contents[0] ?? dto.caption ?? '').toString();
+          if (!img) continue;
+          items.push({ kind: dto.goal.toUpperCase() as 'MESSAGE' | 'TRAFFIC', imageUrl: img, message: msg });
+        }
+      } else {
+        if (!dto.imageUrl) throw new BadRequestException(`Thiếu 'images[]' (hoặc 'imageUrl') cho ${dto.goal}`);
+        items.push({ kind: dto.goal.toUpperCase() as 'MESSAGE' | 'TRAFFIC', imageUrl: dto.imageUrl, message: dto.caption || '' });
+      }
+    }
+    if (!items.length) throw new BadRequestException('Không tìm thấy item nào để tạo quảng cáo.');
+
+    // --- 6) Tạo creatives & ads theo items ---
+    const ads: any[] = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+
+      // Chọn content gốc để cắt snippet
+      const rawContent =
+        it.kind === 'ENGAGEMENT'
+          ? (it.caption || dto.caption || '')
+          : (it.message || dto.caption || '');
+
+      const clean = rawContent.toString().trim().replace(/\s+/g, ' ');
+      const snippet = clean ? clean.slice(0, 50) : ''; // 50 ký tự đầu
+      const now = moment().format('YYYY-MM-DD HH:mm');
+
+      // ✅ tên ad: ngày giờ + snippet (nhẹ nhàng, giống UI nhưng dài 50 ký tự)
+      const adName = snippet ? `Ad ${now} - ${snippet}` : `Ad ${now}`;
+
+      // tạo creative
+      let creativeId: string;
+      if (it.kind === 'ENGAGEMENT') {
+        creativeId = await createCreativeForEngagement(it.postId);
+      } else if (it.kind === 'MESSAGE') {
+        creativeId = await createCreativeForMessage(it.imageUrl, it.message);
+      } else {
+        creativeId = await createCreativeForTraffic(it.imageUrl, it.message);
+      }
+
+      // tạo ad
+      const adRes = await this.createAd(
+        { ...dto, campaignName: adName } as any,
+        adSetId,
+        creativeId,
+        adAccountId,
+        metaCampaignId,
+        pageId,
+        fb
+      );
+
+      // lưu meta info cho DB
+      adRes.__caption = (it as any).message || (it as any).caption || dto.caption || '';
+      adRes.__urlPost = (it as any).urlPost || dto.urlPost || '';
+      adRes.__campaignName = adName;
+
+      ads.push(adRes);
+    }
+
+    // --- 7) Activate campaign + adset ---
+    await this.activateCampaign(metaCampaignId, fb);
+    await this.activateAdSet(adSetId, fb);
+
+    // --- 8) Save Ads (FK campaign) ---
+    for (const ad of ads) {
+      await this.facebookAdRepo.save({
+        adId: ad.id,
+        campaignName: ad.__campaignName,
+        caption: ad.__caption,
+        dataTargeting: dto,
+        urlPost: ad.__urlPost,
+        objective,
+        startTime: new Date(dto.startTime),
+        endTime: new Date(dto.endTime),
+        dailyBudget: dto.dailyBudget,
+        status: 'ACTIVE',
+        createdBy: userData,
+        campaign: campaignEntity, // 🔗 FK vào bảng campaigns
+      });
+    }
+
+    return ads;
   }
+
+
+
 
   private async createCampaign(
     dto: AnyDto,
@@ -1154,8 +1311,118 @@ export class FacebookAdsService {
     )
   }
 
-  /** ===================== Creative ===================== */
-  private async createCreative(
+
+
+  /** ===================== Fallback Awareness (pixel) ===================== */
+  private async createAwarenessFallbackAndAd(
+    dto: AnyDto,
+    adAccountId: string,
+    pageId: string,
+    creativeId: string,
+    fb: AxiosInstance
+  ) {
+    this.logger.warn('⚠️ Pixel required → fallback OUTCOME_AWARENESS / IMPRESSIONS')
+    const fbCampaignId = await this.createCampaign(dto, adAccountId, fb, 'OUTCOME_AWARENESS')
+
+    const targeting = await this.buildTargeting(dto, adAccountId, fb)
+    const payload = {
+      name: `${dto.campaignName} - Awareness Fallback`,
+      campaign_id: fbCampaignId,
+      daily_budget: dto.dailyBudget,
+      billing_event: 'IMPRESSIONS',
+      optimization_goal: 'IMPRESSIONS',
+      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
+      start_time: dto.startTime,
+      end_time: dto.endTime,
+      status: 'PAUSED',
+      targeting: JSON.stringify(this.normalizeTargetingForCreation(targeting)),
+      promoted_object: JSON.stringify({ page_id: pageId }),
+    }
+
+    this.logger.log(`STEP fallback → POST /${adAccountId}/adsets`)
+    const adsetRes = await fb.post(`/${adAccountId}/adsets`, qs.stringify(payload), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    })
+    const fbAdSetId = adsetRes.data.id
+    this.logger.log(`✅ Fallback AdSet created: ${fbAdSetId}`)
+
+    this.logger.log(`STEP fallback → POST /${adAccountId}/ads`)
+    const adRes = await fb.post(`/${adAccountId}/ads`, null, {
+      params: {
+        name: `${dto.campaignName} - Awareness Ad`,
+        adset_id: fbAdSetId,
+        creative: JSON.stringify({ creative_id: creativeId }),
+        status: 'PAUSED',
+      },
+    })
+    this.logger.log(`✅ Fallback Ad created: ${adRes.data.id}`)
+    return { ad: adRes.data, fbCampaignId, fbAdSetId }
+  }
+
+  /** ===================== Ad ===================== */
+  private async createAd(
+    dto0: CreateFacebookAdDto,
+    adSetId: string,
+    creativeId: string,
+    adAccountId: string,
+    usedCampaignId?: string,
+    pageId?: string,
+    fb?: AxiosInstance,
+  ) {
+    const dto = dto0 as AnyDto
+    if (!fb) throw new InternalServerErrorException('FB client missing')
+    try {
+      this.logger.log(`STEP createAd → POST /${adAccountId}/ads`)
+      const res = await fb.post(`/${adAccountId}/ads`, null, {
+        params: {
+          name: dto.campaignName,
+          adset_id: adSetId,
+          creative: JSON.stringify({ creative_id: creativeId }),
+          status: 'PAUSED',
+        },
+      })
+      const adId = res.data.id
+      this.logger.log(`✅ Ad created: ${adId}`)
+      await this.activateAd(adId, fb)
+      return res.data
+    } catch (error: any) {
+      const err = error?.response?.data?.error
+      const sub = err?.error_subcode
+      const msg = err?.error_user_msg || err?.message || ''
+
+      if ((sub === 1487888 || /pixel|theo dõi|tracking/i.test(msg)) && dto.goal !== AdsGoal.MESSAGE && pageId) {
+        try {
+          const fallback = await this.createAwarenessFallbackAndAd(dto as AnyDto, adAccountId, pageId, creativeId, fb!)
+          await this.activateCampaign(fallback.fbCampaignId, fb!)
+          await this.activateAdSet(fallback.fbAdSetId, fb!)
+          await this.activateAd(fallback.ad.id, fb!)
+          return fallback.ad
+        } catch (e: any) {
+          const m = e?.response?.data?.error?.error_user_msg || e.message
+          throw new BadRequestException(`Tạo quảng cáo thất bại (fallback Awareness): ${m}`)
+        }
+      }
+
+      const message = err?.error_user_msg || err?.message
+      this.logger.error('❌ Ad creation error:', error?.response?.data || error)
+      throw new BadRequestException(`Tạo quảng cáo thất bại: ${message}`)
+    }
+  }
+  // ===== helpers: multi units =====
+  private zip<T>(...arrs: T[][]): T[][] {
+    const max = Math.max(...arrs.map(a => a?.length ?? 0));
+    const out: T[][] = [];
+    for (let i = 0; i < max; i++) out.push(arrs.map(a => a?.[i]));
+    return out;
+  }
+
+  private adName(i: number, total: number, base: string) {
+    const digits = String(total).length;
+    return `#${String(i + 1).padStart(digits, '0')} - ${base}`;
+  }
+
+  /** ===================== Creative (single) ===================== */
+  private async createSingleCreativeByDto(
     dto0: CreateFacebookAdDto,
     adAccountId: string,
     pageId: string,
@@ -1258,133 +1525,6 @@ export class FacebookAdsService {
       throw new BadRequestException(`Tạo Creative thất bại: ${message}`)
     }
   }
-
-  /** ===================== Fallback Awareness (pixel) ===================== */
-  private async createAwarenessFallbackAndAd(
-    dto: AnyDto,
-    adAccountId: string,
-    pageId: string,
-    creativeId: string,
-    fb: AxiosInstance
-  ) {
-    this.logger.warn('⚠️ Pixel required → fallback OUTCOME_AWARENESS / IMPRESSIONS')
-    const fbCampaignId = await this.createCampaign(dto, adAccountId, fb, 'OUTCOME_AWARENESS')
-
-    const targeting = await this.buildTargeting(dto, adAccountId, fb)
-    const payload = {
-      name: `${dto.campaignName} - Awareness Fallback`,
-      campaign_id: fbCampaignId,
-      daily_budget: dto.dailyBudget,
-      billing_event: 'IMPRESSIONS',
-      optimization_goal: 'IMPRESSIONS',
-      bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-      start_time: dto.startTime,
-      end_time: dto.endTime,
-      status: 'PAUSED',
-      targeting: JSON.stringify(this.normalizeTargetingForCreation(targeting)),
-      promoted_object: JSON.stringify({ page_id: pageId }),
-    }
-
-    this.logger.log(`STEP fallback → POST /${adAccountId}/adsets`)
-    const adsetRes = await fb.post(`/${adAccountId}/adsets`, qs.stringify(payload), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    })
-    const fbAdSetId = adsetRes.data.id
-    this.logger.log(`✅ Fallback AdSet created: ${fbAdSetId}`)
-
-    this.logger.log(`STEP fallback → POST /${adAccountId}/ads`)
-    const adRes = await fb.post(`/${adAccountId}/ads`, null, {
-      params: {
-        name: `${dto.campaignName} - Awareness Ad`,
-        adset_id: fbAdSetId,
-        creative: JSON.stringify({ creative_id: creativeId }),
-        status: 'PAUSED',
-      },
-    })
-    this.logger.log(`✅ Fallback Ad created: ${adRes.data.id}`)
-    return { ad: adRes.data, fbCampaignId, fbAdSetId }
-  }
-
-  /** ===================== Ad ===================== */
-  private async createAd(
-    dto0: CreateFacebookAdDto,
-    adSetId: string,
-    creativeId: string,
-    adAccountId: string,
-    usedCampaignId?: string,
-    pageId?: string,
-    fb?: AxiosInstance,
-  ) {
-    const dto = dto0 as AnyDto
-    if (!fb) throw new InternalServerErrorException('FB client missing')
-    try {
-      this.logger.log(`STEP createAd → POST /${adAccountId}/ads`)
-      const res = await fb.post(`/${adAccountId}/ads`, null, {
-        params: {
-          name: dto.campaignName,
-          adset_id: adSetId,
-          creative: JSON.stringify({ creative_id: creativeId }),
-          status: 'PAUSED',
-        },
-      })
-      const adId = res.data.id
-      this.logger.log(`✅ Ad created: ${adId}`)
-      await this.activateAd(adId, fb)
-      return res.data
-    } catch (error: any) {
-      const err = error?.response?.data?.error
-      const sub = err?.error_subcode
-      const msg = err?.error_user_msg || err?.message || ''
-
-      if ((sub === 1487888 || /pixel|theo dõi|tracking/i.test(msg)) && dto.goal !== AdsGoal.MESSAGE && pageId) {
-        try {
-          const fallback = await this.createAwarenessFallbackAndAd(dto as AnyDto, adAccountId, pageId, creativeId, fb!)
-          await this.activateCampaign(fallback.fbCampaignId, fb!)
-          await this.activateAdSet(fallback.fbAdSetId, fb!)
-          await this.activateAd(fallback.ad.id, fb!)
-          return fallback.ad
-        } catch (e: any) {
-          const m = e?.response?.data?.error?.error_user_msg || e.message
-          throw new BadRequestException(`Tạo quảng cáo thất bại (fallback Awareness): ${m}`)
-        }
-      }
-
-      const message = err?.error_user_msg || err?.message
-      this.logger.error('❌ Ad creation error:', error?.response?.data || error)
-      throw new BadRequestException(`Tạo quảng cáo thất bại: ${message}`)
-    }
-  }
-
-  /** ===================== Multiple Ads ===================== */
-  private async createMultipleAds(
-    dto: AnyDto,
-    adSetId: string,
-    creativeId: string,
-    adAccountId: string,
-    usedCampaignId: string,
-    pageId: string,
-    fb: AxiosInstance,
-  ) {
-    const ads: any[] = [];
-    const numAds = Math.max(1, Math.min(dto.numAds || 1, 10)); // tối đa 10 ads
-    const digits = String(numAds).length;                      // padding theo tổng số
-
-    for (let i = 0; i < numAds; i++) {
-      const ii = String(i + 1).padStart(digits, '0');
-      const adName = `AB ${ii} - ${dto.campaignName} `;
-
-      // truyền DTO "clone" để không ảnh hưởng dto gốc và DB step sau
-      const dtoPerAd: AnyDto = { ...dto, campaignName: adName };
-
-      this.logger.log(`STEP createAd [${i + 1}/${numAds}] name="${adName}"`);
-      const adRes = await this.createAd(dtoPerAd, adSetId, creativeId, adAccountId, usedCampaignId, pageId, fb);
-      adRes.campaignName = adName; // gán thêm để lưu DB
-      ads.push(adRes);
-    }
-    return ads;
-  }
-
-
 
   private async activateCampaign(campaignId: string, fb: AxiosInstance) {
     this.logger.log(`STEP activateCampaign → POST /${campaignId}`)

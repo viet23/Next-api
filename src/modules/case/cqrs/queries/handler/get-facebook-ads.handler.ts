@@ -1,18 +1,13 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
-import _ from 'lodash'
-import { AnalysisFb } from '@models/analysis-fb.entity'
 import { User } from '@models/user.entity'
 import { GetFacebookAdsQuery } from '../impl/get-facebook-ads.query'
 import { FacebookAd } from '@models/facebook-ad.entity'
 import { Logger } from '@nestjs/common'
 import axios from 'axios'
-import moment from 'moment-timezone'
 import crypto from 'node:crypto'
-
-const formatCurrency = (v) => Number(v).toLocaleString('en-US') // 1,234,567
-const format2 = (v) => Number(v).toFixed(2) // 2 chữ số thập phân
+import { FacebookCampaign } from '@models/facebook_campaign.entity'
 
 const INSIGHTS_FIELDS = [
   'date_start',
@@ -39,7 +34,8 @@ const toNumber = (v: any) => {
   const n = Number(s)
   return Number.isFinite(n) ? n : 0
 }
-
+const formatCurrency = (v: any) => Number(v).toLocaleString('en-US')
+const format2 = (v: any) => Number(v).toFixed(2)
 const isServer = typeof window === 'undefined'
 
 function buildAppSecretProof(token?: string) {
@@ -53,74 +49,63 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
   private readonly logger = new Logger(`${GetFacebookAdsQueryHandler.name}`)
 
   constructor(
+    @InjectRepository(FacebookCampaign)
+    private readonly facebookCampaignRepo: Repository<FacebookCampaign>, // 👈 dùng bảng chiến dịch
     @InjectRepository(FacebookAd)
-    private readonly facebookAdRepo: Repository<FacebookAd>,
+    private readonly facebookAdRepo: Repository<FacebookAd>, // vẫn cần nếu muốn query riêng
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) {}
+  ) { }
 
   async execute(q: GetFacebookAdsQuery): Promise<any> {
     const { filter, user } = q
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
 
-    const query = this.facebookAdRepo
-      .createQueryBuilder('facebook_ads')
-      .leftJoinAndSelect('facebook_ads.createdBy', 'createdBy')
-      .where('facebook_ads.createdBy.id = :updatedById', { updatedById: userData?.id })
-      .orderBy('facebook_ads.createdAt', 'DESC')
+    // ===== 1) Lấy danh sách Campaign của user (kèm ads) =====
+    const qb = this.facebookCampaignRepo
+      .createQueryBuilder('campaign')
+      .leftJoinAndSelect('campaign.createdBy', 'createdBy')
+      .leftJoinAndSelect('campaign.ads', 'ads') // 👈 lấy toàn bộ ads trong chiến dịch
+      .where('createdBy.id = :uid', { uid: userData?.id })
+      .orderBy('campaign.createdAt', 'DESC')
 
-    if (filter?.filter?.pageSize && filter?.filter?.page) {
-      const skip = (filter.filter.page - 1) * filter.filter.pageSize
-      query.take(filter.filter.pageSize).skip(skip)
+    // Phân trang theo campaign
+    let page = 1
+    let pageSize = 10
+    if (filter?.filter?.page && filter?.filter?.pageSize) {
+      page = Math.max(1, Number(filter.filter.page))
+      pageSize = Math.max(1, Number(filter.filter.pageSize))
+      qb.take(pageSize).skip((page - 1) * pageSize)
     }
 
-    const [data, total] = await query.getManyAndCount()
+    const [campaigns, campaignTotal] = await qb.getManyAndCount()
 
-    // ---- helpers ----
-    const buildFallbackRow = (ad: any, index: number, status = 'PAUSED') => ({
-      key: ad?.key ?? index + 1,
-      adId: ad?.adId,
-      campaignName: ad?.campaignName,
-      targeting: ad?.targeting,
-      urlPost: ad?.urlPost,
-      status,
-      data: { impressions: 0, clicks: 0, spend: 0, ctr: 0, cpm: 0 },
+    // ===== Nếu không có campaign nào, vẫn tiếp tục vì có thể có orphan ads =====
+    // ===== 2) Chuẩn bị FB client per user (dùng cho insights của từng ad) =====
+    const token = userData?.accessTokenUser as string | undefined
+    const rawCookie = userData?.cookie as string | undefined
+    const commonHeaders: Record<string, string> = { Accept: 'application/json' }
+    if (isServer && rawCookie) commonHeaders['Cookie'] = rawCookie
+
+    const appsecret_proof = buildAppSecretProof(token)
+    const client = axios.create({
+      baseURL: 'https://graph.facebook.com/v23.0',
+      timeout: 20000,
+      headers: commonHeaders,
     })
 
-    const fetchOne = async (ad: any, index: number) => {
-      const rawCookie = ad?.createdBy?.cookie as string | undefined // "c_user=...; xs=...; fr=..."
-      const token = ad?.createdBy?.accessTokenUser as string | undefined
-      const adId = ad?.adId
+    // ===== 3) Helper: fetch status + insights theo adId =====
+    const fetchAdRealtime = async (adId: string) => {
       if (!token || !adId) {
-        return buildFallbackRow(ad, index, 'PAUSED')
+        return {
+          status: 'PAUSED',
+          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0' },
+        }
       }
-
-      // ⚠️ chỉ server mới gửi được header Cookie; browser sẽ bỏ qua header này.
-      const commonHeaders: Record<string, string> = { Accept: 'application/json' }
-      if (isServer && rawCookie) {
-        commonHeaders['Cookie'] = rawCookie
-      }
-
-      // (tuỳ chọn) tăng bảo mật nếu app bật appsecret_proof
-      const appsecret_proof = buildAppSecretProof(token)
-
-      // dùng v23.0 cho mới & ổn định hơn
-      const client = axios.create({
-        baseURL: 'https://graph.facebook.com/v23.0',
-        timeout: 20000,
-        headers: commonHeaders,
-      })
-
       try {
-        // gọi song song status + insights
         const [statusRes, insightsRes] = await Promise.all([
           client.get(`/${adId}`, {
-            params: {
-              fields: 'status',
-              ...(appsecret_proof ? { appsecret_proof } : {}),
-            },
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
+            params: { fields: 'status', ...(appsecret_proof ? { appsecret_proof } : {}) },
+            headers: { Authorization: `Bearer ${token}` },
             timeout: 15000,
           }),
           client.get(`/${adId}/insights`, {
@@ -129,17 +114,14 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
               date_preset: 'maximum',
               ...(appsecret_proof ? { appsecret_proof } : {}),
             },
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
+            headers: { Authorization: `Bearer ${token}` },
             timeout: 20000,
           }),
         ])
 
-        const status =
-          typeof statusRes?.data?.status === 'string' ? statusRes.data.status : 'PAUSED'
-
+        const status = typeof statusRes?.data?.status === 'string' ? statusRes.data.status : 'PAUSED'
         const fb = insightsRes?.data?.data?.[0] ?? {}
+
         const impressions = toNumber(fb.impressions)
         const clicks = toNumber(fb.clicks)
         const spend = toNumber(fb.spend)
@@ -147,13 +129,8 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
         const cpm = toNumber(fb.cpm)
 
         return {
-          key: ad?.key ?? index + 1,
-          adId,
-          campaignName: ad?.campaignName,
-          targeting: ad?.targeting,
-          urlPost: ad?.urlPost,
           status,
-          data: {
+          insights: {
             impressions,
             clicks,
             spend: formatCurrency(spend),
@@ -164,22 +141,135 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
       } catch (error: any) {
         const e = error?.response?.data?.error
         this.logger.error(
-          `❌ Lỗi khi lấy dữ liệu cho ad ${adId}: ${e?.message || error?.message} (code=${e?.code}, sub=${e?.error_subcode})`,
+          `❌ Lỗi lấy dữ liệu ad ${adId}: ${e?.message || error?.message} (code=${e?.code}, sub=${e?.error_subcode})`,
         )
-        // Nếu gặp 190/452: token vô hiệu do đổi mật khẩu / FB reset session → yêu cầu re-auth
-        return buildFallbackRow(ad, index, 'PAUSED')
+        return {
+          status: 'PAUSED',
+          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0' },
+        }
       }
     }
 
-    const settled = await Promise.allSettled(data.map((ad, i) => fetchOne(ad, i)))
-    const dataAds = settled
-      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
-      .map((r) => r.value)
+    // ===== 4) Duyệt từng campaign → map danh sách ads bên trong =====
+    const dataFromCampaigns = await Promise.all(
+      campaigns.map(async (camp) => {
+        // Lấy realtime cho tất cả ads thuộc campaign (song song)
+        const adRealtime = await Promise.all(
+          (camp.ads || []).map(async (ad) => {
+            const rt = await fetchAdRealtime(ad.adId)
+            return {
+              adId: ad.adId,
+              name: ad.campaignName, // tên ad (đã đặt khi tạo)
+              caption: ad.caption,
+              urlPost: ad.urlPost,
+              status: rt.status,
+              data: rt.insights,
+              createdAt: ad.createdAt,
+            }
+          }),
+        )
 
-    settled
-      .filter((r) => r.status === 'rejected')
-      .forEach((r: any) => this.logger.error(`Rejected item: ${r?.reason}`))
+        // Tính tổng (optional)
+        const summary = adRealtime.reduce(
+          (acc, a) => {
+            acc.impressions += toNumber(a.data.impressions)
+            acc.clicks += toNumber(a.data.clicks)
+            acc.spend += Number((a.data.spend || '0').toString().replace(/,/g, ''))
+            return acc
+          },
+          { impressions: 0, clicks: 0, spend: 0 },
+        )
 
-    return { data: dataAds, total }
+        return {
+          campaignRefId: camp.id, // id nội bộ (DB)
+          campaignId: camp.campaignId, // id Graph
+          name: camp.name,
+          objective: camp.objective,
+          startTime: camp.startTime,
+          endTime: camp.endTime,
+          dailyBudget: camp.dailyBudget,
+          status: camp.status,
+          createdAt: camp.createdAt,
+          totals: {
+            impressions: summary.impressions,
+            clicks: summary.clicks,
+            spend: formatCurrency(summary.spend),
+          },
+          ads: adRealtime, // ⬅️ danh sách quảng cáo bên trong
+        }
+      }),
+    )
+
+    // ===== 5) Lấy các ad "cũ" / orphan (không có campaign liên kết) của user =====
+    const orphanAds = await this.facebookAdRepo
+      .createQueryBuilder('ad')
+      .leftJoin('ad.campaign', 'campaign')
+      .leftJoin('ad.createdBy', 'createdBy')
+      .where('createdBy.id = :uid', { uid: userData?.id })
+      .andWhere('campaign.id IS NULL')
+      .orderBy('ad.createdAt', 'ASC') // đặt thứ tự cũ → mới, tuỳ bạn
+      .getMany()
+
+    let syntheticCampaign = null
+    if (orphanAds && orphanAds.length) {
+      const adRealtime = await Promise.all(
+        orphanAds.map(async (ad) => {
+          const rt = await fetchAdRealtime(ad.adId)
+          return {
+            adId: ad.adId,
+            name: ad.campaignName || '(No title)',
+            caption: ad.caption || '(No content)',
+            urlPost: ad.urlPost || '',
+            status: rt.status,
+            data: rt.insights,
+            createdAt: ad.createdAt,
+          }
+        }),
+      )
+
+      const summary = adRealtime.reduce(
+        (acc, a) => {
+          acc.impressions += toNumber(a.data.impressions)
+          acc.clicks += toNumber(a.data.clicks)
+          acc.spend += Number((a.data.spend || '0').toString().replace(/,/g, ''))
+          return acc
+        },
+        { impressions: 0, clicks: 0, spend: 0 },
+      )
+
+      // Determine earliest createdAt among orphan ads to use as synthetic createdAt (optional)
+      const earliestCreatedAt = adRealtime.reduce((earliest, a) => {
+        if (!earliest) return a.createdAt
+        return new Date(a.createdAt) < new Date(earliest) ? a.createdAt : earliest
+      }, null as any)
+
+      syntheticCampaign = {
+        campaignRefId: 0, // dùng 0 để dễ phân biệt
+        campaignId: null,
+        name: 'Dữ liệu phiên bản trước', // tên theo yêu cầu
+        objective: null,
+        startTime: null,
+        endTime: null,
+        dailyBudget: 0,
+        status: 'ACTIVE',
+        createdAt: earliestCreatedAt,
+        totals: {
+          impressions: summary.impressions,
+          clicks: summary.clicks,
+          spend: formatCurrency(summary.spend),
+        },
+        ads: adRealtime,
+      }
+    }
+
+    // ===== 6) Ghép kết quả: campaigns (theo trang) + synthetic (đưa cuối) =====
+    const data = [...dataFromCampaigns]
+    if (syntheticCampaign) {
+      data.push(syntheticCampaign) // luôn ở cuối
+    }
+
+    const total = campaignTotal + (syntheticCampaign ? 1 : 0)
+
+    return { data, total, page, pageSize }
   }
 }
