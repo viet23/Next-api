@@ -51,6 +51,7 @@ import { GetFacebookAdsQuery } from '../cqrs/queries/impl/get-facebook-ads.query
 import { GetCreditQuery } from '../cqrs/queries/impl/get-credit.query'
 import { CreditDoneQuery } from '../cqrs/queries/impl/credit-done.query'
 import { FindAdsQuery } from '../cqrs/queries/impl/find-ads.query'
+import { GetFacebookAdsHistoryQuery } from '../cqrs/queries/impl/get-facebook-ads-detatil.query'
 
 @Controller('case')
 @ApiTags('case')
@@ -68,22 +69,22 @@ export class CaseController {
     return this.queryBus.execute(new GetCaseQuery(filter, user))
   }
 
- @Get('all')
-@UseGuards(JwtAuthGuard)
-async findAlll(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> {
-  if (!query.filter) {
-    query.filter = {
-      where: {},
-      page: 1,
-      pageSize: 10,
-      filter: {},
-    };
-  }
-  query.filter.where = query.filter.where || {};
-  query.filter.where.status = CaseStatusEnum.PENDING;
+  @Get('all')
+  @UseGuards(JwtAuthGuard)
+  async findAlll(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> {
+    if (!query.filter) {
+      query.filter = {
+        where: {},
+        page: 1,
+        pageSize: 10,
+        filter: {},
+      };
+    }
+    query.filter.where = query.filter.where || {};
+    query.filter.where.status = CaseStatusEnum.PENDING;
 
-  return this.queryBus.execute(new GetCaseQuery(query.filter, user));
-}
+    return this.queryBus.execute(new GetCaseQuery(query.filter, user));
+  }
 
 
   @Get('analysis')
@@ -116,7 +117,13 @@ async findAlll(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> 
   async facebookAds(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> {
     console.log(`user-----------`, user)
 
-    return this.queryBus.execute(new GetFacebookAdsQuery(query.filter,user))
+    return this.queryBus.execute(new GetFacebookAdsQuery(query.filter, user))
+  }
+
+  @Get('facebookads/:id')
+  @UseGuards(JwtAuthGuard)
+  async findOneHistory(@Param('id') id: string): Promise<any> {
+    return this.queryBus.execute(new GetFacebookAdsHistoryQuery(id))
   }
 
   @Post('detail')
@@ -195,7 +202,7 @@ async findAlll(@Query() query: CaseManyDto, @Authen() user: User): Promise<any> 
     return this.queryBus.execute(new FindCaseQuery(id))
   }
 
-   @Get('credit/:id')
+  @Get('credit/:id')
   // @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'id' })
   async creditDone(@Param('id', ParseUUIDPipe) id: string): Promise<Case> {
