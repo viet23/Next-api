@@ -9,7 +9,7 @@ import { FacebookAd } from '@models/facebook-ad.entity'
 import FormData from 'form-data'
 import crypto from 'node:crypto'
 import { FacebookCampaign } from '@models/facebook_campaign.entity'
-import moment from 'moment'
+import moment from 'moment-timezone';
 
 /** ===================== Types & DTO (extended) ===================== */
 type TargetingSpec = Record<string, any>;
@@ -999,7 +999,7 @@ export class FacebookAdsService {
 
       const clean = rawContent.toString().trim().replace(/\s+/g, ' ');
       const snippet = clean ? clean.slice(0, 50) : ''; // 50 ký tự đầu
-      const now = moment().format('YYYY-MM-DD HH:mm');
+     const now = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm');
 
       // ✅ tên ad: ngày giờ + snippet (nhẹ nhàng, giống UI nhưng dài 50 ký tự)
       const adName = snippet ? `Ad ${now} - ${snippet}` : `Ad ${now}`;
