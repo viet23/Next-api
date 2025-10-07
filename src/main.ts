@@ -8,7 +8,6 @@ import { join } from 'path';
 import { SeedRolesService } from './seed/seed.roles';
 import cookieParser from 'cookie-parser';
 import { Connection } from 'typeorm'; // ⬅️ TypeORM 0.2.x dùng Connection
-
 require('dotenv').config();
 
 async function bootstrap() {
@@ -23,33 +22,47 @@ async function bootstrap() {
   const seedRolesService = app.get(SeedRolesService);
   await seedRolesService.seed();
 
-  // ⬇️ Seed Free-subscription cho mọi user chưa có subscription (TypeORM 0.2.x)
+  // Kết nối DB
   const connection = app.get(Connection);
-  try {
-    // Nếu là PostgreSQL và dùng uuid_generate_v4()
-    await connection.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
 
-    await connection.query(`
-      INSERT INTO "tbl_user_subscriptions" 
-        ("id", "userId", "planId", "startDate", "endDate", "isPaid", "created_at", "updated_at")
-      SELECT
-        uuid_generate_v4(),
-        u."id",
-        (SELECT "id" FROM "tbl_subscription_plans" WHERE "name" = 'Free' LIMIT 1),
-        now(),
-        now() + interval '7 day',
-        true,
-        now(),
-        now()
-      FROM "tbl_users" u
-      WHERE NOT EXISTS (
-        SELECT 1 FROM "tbl_user_subscriptions" s WHERE s."userId" = u."id"
-      );
-    `);
-    console.log('[Seed] User Free subscriptions ensured.');
-  } catch (e) {
-    console.error('[Seed] Error seeding user subscriptions:', e?.message || e);
+  // ✅ Hàm seed Free subscriptions
+  async function seedFreeSubscriptions() {
+    try {
+      // Nếu là PostgreSQL và dùng uuid_generate_v4()
+      await connection.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
+
+      await connection.query(`
+        INSERT INTO "tbl_user_subscriptions" 
+          ("id", "userId", "planId", "startDate", "endDate", "isPaid", "created_at", "updated_at")
+        SELECT
+          uuid_generate_v4(),
+          u."id",
+          (SELECT "id" FROM "tbl_subscription_plans" WHERE "name" = 'Free' LIMIT 1),
+          now(),
+          now() + interval '7 day',
+          true,
+          now(),
+          now()
+        FROM "tbl_users" u
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "tbl_user_subscriptions" s WHERE s."userId" = u."id"
+        );
+      `);
+
+      console.log(`[Seed] ✅ User Free subscriptions ensured at ${new Date().toISOString()}`);
+    } catch (e) {
+      console.error('[Seed] ❌ Error seeding user subscriptions:', e?.message || e);
+    }
   }
+
+  // 👉 Chạy lần đầu khi khởi động
+  await seedFreeSubscriptions();
+
+  // 👉 Cứ 5 phút chạy lại 1 lần (30 * 60 * 1000 ms)
+  setInterval(seedFreeSubscriptions, 5 * 60 * 1000);
+
+  // setInterval(seedFreeSubscriptions, 30 * 1000);
+
 
   // CORS
   app.enableCors({ origin: true, credentials: true });
@@ -72,6 +85,7 @@ async function bootstrap() {
     .addTag('Camera AI')
     .addBearerAuth()
     .build();
+
   const document = SwaggerModule.createDocument(app, swaggerOptions);
   SwaggerModule.setup('explorer', app, document); // muốn nằm trong prefix thì đổi thành 'api/v1/explorer'
 
@@ -84,9 +98,12 @@ async function bootstrap() {
   // await app.startAllMicroservices(); // nếu dùng connectMicroservice() ở nơi khác
 
   await app.listen(3001);
+  console.log(`🚀 Server running on http://localhost:3001`);
 }
+
 bootstrap();
 
+// ================= Kafka Config ===================
 export const kafkaConfig: KafkaOptions = {
   transport: Transport.KAFKA,
   options: {
@@ -100,7 +117,8 @@ export const kafkaConfig: KafkaOptions = {
   },
 };
 
-// export const resdisConfig: RedisOptions = {
+// ================= Redis Config (tùy chọn) ===================
+// export const redisConfig: RedisOptions = {
 //   transport: Transport.REDIS,
 //   options: { host: 'localhost', port: /* ... */ }
-// }
+// };
