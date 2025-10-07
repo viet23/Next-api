@@ -1,4 +1,3 @@
-// src/modules/facebook-post/facebook-post.service.ts
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike } from 'typeorm';
@@ -153,32 +152,34 @@ export class FacebookPostService {
     return crypto.createHmac('sha256', secret).update(token).digest('hex');
   }
 
-  /** Fields gọn & đủ số liệu tổng hợp */
-  private buildPostFields() {
-    // Dùng reactions & tổng count của comments để nhẹ hơn
+  /** Fields "rất an toàn" — KHÔNG request attachments/call_to_action trực tiếp để tránh error 12 */
+  private buildSafePostFields() {
     return [
       'id',
       'message',
       'created_time',
       'permalink_url',
       'full_picture',
+      // thống kê nhẹ
       'comments.limit(0).summary(total_count)',
       'reactions.limit(0).summary(total_count)',
       'shares',
     ].join(',');
   }
 
-  /** Lấy tất cả posts của 1 page (phân trang) — tối ưu chống timeout */
+  /**
+   * Lấy posts (light) — dùng bộ fields an toàn. Nếu API trả lỗi (400/12) thì trả [] (không crash).
+   */
   private async fetchAllPostsFromGraph(
     pageId: string,
     accessToken: string,
     rawCookie: string,
-    useFeed = false, // cho phép thử /feed nếu muốn
+    useFeed = false,
   ) {
     const MAX_POSTS = 150; // giới hạn
-    const PAGE_SIZE = 25; // 25–50 là hợp lý; 100 dễ timeout nếu fields nặng
+    const PAGE_SIZE = 25; // 25–50 hợp lý
 
-    const fields = this.buildPostFields();
+    const fields = this.buildSafePostFields();
     const endpoint = useFeed ? 'feed' : 'posts';
     const base = `https://graph.facebook.com/v19.0/${pageId}/${endpoint}`;
     const appsecret_proof = this.buildAppSecretProof(accessToken);
@@ -204,21 +205,64 @@ export class FacebookPostService {
           if (all.length >= MAX_POSTS) break;
         }
 
-        // Facebook tự gắn access_token & appsecret_proof trong paging.next
         url = data?.paging?.next ?? null;
       }
     } catch (err: any) {
-      // log gọn, không in access_token
       this.logger.error('[fetchAllPostsFromGraph] Error', {
         pageId,
         message: err?.message,
-        code: err?.code,
         status: err?.response?.status,
         fb: err?.response?.data,
       } as any);
+      // trả về mảng rỗng để caller xử lý, tránh crash hệ thống
+      return [];
     }
 
     return all.slice(0, MAX_POSTS);
+  }
+
+  /**
+   * Thử fetch CTA & attachments cho 1 post riêng lẻ.
+   * Trả về object { cta, attachments } hoặc null nếu lỗi / deprecated.
+   * Rất cẩn trọng: nếu FB trả lỗi code 12 (deprecate) — catch và trả null.
+   */
+  private async fetchCTAForPost(postId: string, accessToken: string, rawCookie?: string) {
+    const appsecret_proof = this.buildAppSecretProof(accessToken);
+
+    // fields nhẹ nhàng cho per-post CTA check (cẩn trọng)
+    const fields = 'call_to_action,attachments{type,media,url,title,description,subattachments,call_to_action}';
+    const params = new URLSearchParams({
+      fields,
+      access_token: accessToken,
+    });
+    if (appsecret_proof) params.append('appsecret_proof', appsecret_proof);
+
+    const url = `https://graph.facebook.com/v19.0/${postId}?${params.toString()}`;
+
+    try {
+      const { data } = await this.withRetry(() =>
+        this.fbHttp.get(url, { headers: this.fbHeaders(accessToken, rawCookie) }),
+      );
+      return {
+        cta: data?.call_to_action ?? null,
+        attachments: data?.attachments?.data ?? null,
+      };
+    } catch (err: any) {
+      const fbErr = err?.response?.data?.error;
+      // Nếu lỗi deprecate liên quan attachments -> log và trả null (chúng ta vẫn tiếp tục)
+      const isDeprecateAttachments =
+        fbErr?.code === 12 ||
+        (fbErr?.message || '').toString().toLowerCase().includes('deprecate_post_aggregated_fields_for_attachement'.toLowerCase());
+
+      if (isDeprecateAttachments) {
+        this.logger.warn('[fetchCTAForPost] attachments deprecated for post, skipping CTA fetch', { postId, fb: fbErr });
+        return null;
+      }
+
+      // Trường hợp lỗi permission/token -> log chi tiết
+      this.logger.warn('[fetchCTAForPost] failed', { postId, message: err?.message, fb: fbErr });
+      return null;
+    }
   }
 
   /** Lấy reach (post_impressions_unique) cho từng post id */
@@ -264,10 +308,42 @@ export class FacebookPostService {
     return out;
   }
 
+  // Helper: detect message CTA từ object post/attachments (textual + call_to_action)
+  private detectMessageCTAFromObject(obj: any): boolean {
+    try {
+      // check call_to_action
+      const cta = obj?.call_to_action;
+      if (cta) {
+        const raw = (cta?.type || cta?.button_type || cta?.action_type || cta?.name || '').toString().toLowerCase();
+        if (raw.includes('message') || raw.includes('send') || raw.includes('messenger')) return true;
+      }
+
+      // check attachments recursively
+      const attachments = obj?.attachments ?? obj?.attachments?.data ?? [];
+      const stack = Array.isArray(attachments) ? [...attachments] : [];
+      while (stack.length) {
+        const att = stack.shift();
+        if (!att) continue;
+        const attCta = att?.call_to_action;
+        if (attCta) {
+          const r = (attCta?.type || attCta?.button_type || attCta?.name || '').toString().toLowerCase();
+          if (r.includes('message') || r.includes('send') || r.includes('messenger')) return true;
+        }
+        const text = `${att?.title ?? ''} ${att?.description ?? ''} ${att?.name ?? ''}`.toLowerCase();
+        if (text.includes('send message') || text.includes('gửi tin') || text.includes('nhắn') || text.includes('message')) return true;
+        if (Array.isArray(att?.subattachments?.data)) stack.push(...att.subattachments.data);
+      }
+
+      return false;
+    } catch (e) {
+      this.logger.warn('[detectMessageCTAFromObject] error', e as any);
+      return false;
+    }
+  }
+
   /**
    * API nội bộ: lấy posts + reach từ Graph rồi format trả về FE
-   * - Nếu không truyền pageId: dùng user.idPage
-   * - Lấy token/cookie từ DB theo user.email
+   * - Lấy posts nhẹ trước, sau đó gọi per-post CTA fetch (concurrency controlled)
    */
   async fetchPagePostsForUser(userdto: User) {
     const userEmail = userdto.email;
@@ -285,24 +361,58 @@ export class FacebookPostService {
     const accessToken = user.accessToken;
     const rawCookie = user.cookie; // "c_user=...; xs=...; fr=..."
 
-    // 1) posts
+    // 1) posts (light)
     const posts = await this.fetchAllPostsFromGraph(pageId, accessToken, rawCookie);
 
     // 2) reach từng post
     const idList = posts.map((p: any) => p?.id).filter(Boolean);
     const reachMap = await this.fetchReachForPosts(idList, accessToken, rawCookie);
 
-    // 3) format trả về FE
+    // 3) fetch CTA per-post with concurrency (to avoid rate-limit)
+    const CTA_CONCURRENCY = 3;
+    const queue = [...idList];
+    const ctaResults = new Map<string, { cta: any | null; attachments: any[] | null } | null>();
+
+    const ctaWorker = async () => {
+      while (queue.length) {
+        const pid = queue.shift()!;
+        try {
+          const res = await this.fetchCTAForPost(pid, accessToken, rawCookie);
+          ctaResults.set(pid, res); // res may be null if deprecated or error
+        } catch (e: any) {
+          this.logger.warn('[fetchPagePostsForUser] CTA fetch worker error', { pid, message: e?.message });
+          ctaResults.set(pid, null);
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: CTA_CONCURRENCY }, ctaWorker));
+
+    // 4) format trả về FE
     const formatted = posts.map((post: any, idx: number) => {
       const reactionsTotal =
         post?.reactions?.summary?.total_count ??
         post?.likes?.summary?.total_count ??
-        0; // fallback nếu có trường likes từ cache cũ
+        0;
+
+      // từ per-post ctaResults (nếu có)
+      const perPost = ctaResults.get(post.id) ?? null;
+      const ctaRaw = perPost?.cta ?? null;
+      const attachmentsRaw = perPost?.attachments ?? post?.attachments ?? null;
+
+      // detect message CTA
+      let hasMessageCTA = false;
+      if (ctaRaw || attachmentsRaw) {
+        hasMessageCTA = this.detectMessageCTAFromObject({ call_to_action: ctaRaw, attachments: attachmentsRaw });
+      } else {
+        // fallback: detect từ post nhẹ (text/title)
+        hasMessageCTA = this.detectMessageCTAFromObject(post);
+      }
 
       return {
         key: String(idx + 1),
         id: post.id,
-        media: post.full_picture || null, // FE render <Image/> từ URL này
+        media: post.full_picture || null,
         caption: post.message || '(No content)',
         react: reactionsTotal,
         comment: post?.comments?.summary?.total_count || 0,
@@ -311,10 +421,14 @@ export class FacebookPostService {
         reach: reachMap.get(post.id) || 0,
         url: post.full_picture || null,
         permalink_url: post.permalink_url || null,
+        // CTA info (may be null if FB deprecated or permission missing)
+        cta: ctaRaw,
+        attachments: attachmentsRaw,
+        hasMessageCTA,
       };
     });
 
-    // 4) thống kê theo tháng (12 ô)
+    // 5) thống kê theo tháng (12 ô)
     const monthlyCount = Array.from({ length: 12 }, (_, i) => ({
       date: String(i + 1).padStart(2, '0'),
       quantity: 0,

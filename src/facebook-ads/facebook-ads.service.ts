@@ -958,16 +958,50 @@ export class FacebookAdsService {
     // --- 5) Xây items từ DTO (tạo ads theo số bài/ảnh) ---
     type AdItem =
       | { kind: 'ENGAGEMENT'; postId: string; caption?: string; urlPost?: string }
-      | { kind: 'MESSAGE' | 'TRAFFIC'; imageUrl: string; message: string; urlPost?: string };
+      | { kind: 'MESSAGE'; imageUrl?: string; message?: string; postId?: string; urlPost?: string }
+      | { kind: 'TRAFFIC'; imageUrl?: string; message?: string; urlPost?: string };
 
     const items: AdItem[] = [];
+
     if (dto.goal === AdsGoal.ENGAGEMENT) {
       const pool = (dto.selectedPosts && dto.selectedPosts.length)
         ? dto.selectedPosts.map(p => ({ postId: p.id, caption: p.caption || '', urlPost: p.permalink_url }))
         : (dto.postIds || []).map(id => ({ postId: id, caption: '', urlPost: undefined }));
       if (!pool.length) throw new BadRequestException(`ENGAGEMENT cần 'selectedPosts[]' hoặc 'postIds[]'`);
       for (const p of pool) items.push({ kind: 'ENGAGEMENT', postId: p.postId, caption: p.caption, urlPost: p.urlPost });
-    } else if (dto.goal === AdsGoal.MESSAGE || dto.goal === AdsGoal.TRAFFIC) {
+    } else if (dto.goal === AdsGoal.MESSAGE) {
+      // Prefer postIds if provided -> create ads from existing Page posts
+      const poolFromSelected = Array.isArray(dto.selectedPosts) && dto.selectedPosts.length
+        ? dto.selectedPosts.map(p => ({ postId: p.id, caption: p.caption || '', urlPost: p.permalink_url }))
+        : [];
+
+      const poolFromIds = Array.isArray(dto.postIds) && dto.postIds.length
+        ? dto.postIds.map(id => ({ postId: id, caption: '', urlPost: undefined }))
+        : [];
+
+      const pool = poolFromSelected.length ? poolFromSelected : poolFromIds;
+
+      if (pool.length) {
+        // create MESSAGE items by postId (use existing post creative)
+        for (const p of pool) items.push({ kind: 'MESSAGE', postId: p.postId, message: p.caption || dto.caption || '', urlPost: p.urlPost });
+      } else {
+        // fallback: build from images/contents or imageUrl as before (create creatives with call_to_action message)
+        const images = Array.isArray(dto.images) ? dto.images : [];
+        const contents = Array.isArray(dto.contents) ? dto.contents : [];
+        const n = Math.min(images.length, Math.max(contents.length, images.length));
+        if (n > 0) {
+          for (let i = 0; i < n; i++) {
+            const img = images[i] ?? images[0];
+            const msg = (contents[i] ?? contents[0] ?? dto.caption ?? '').toString();
+            if (!img) continue;
+            items.push({ kind: 'MESSAGE', imageUrl: img, message: msg });
+          }
+        } else {
+          if (!dto.imageUrl) throw new BadRequestException(`Thiếu 'images[]' (hoặc 'imageUrl') cho MESSAGE`);
+          items.push({ kind: 'MESSAGE', imageUrl: dto.imageUrl, message: dto.caption || '' });
+        }
+      }
+    } else if (dto.goal === AdsGoal.TRAFFIC) {
       const images = Array.isArray(dto.images) ? dto.images : [];
       const contents = Array.isArray(dto.contents) ? dto.contents : [];
       const n = Math.min(images.length, Math.max(contents.length, images.length));
@@ -976,13 +1010,14 @@ export class FacebookAdsService {
           const img = images[i] ?? images[0];
           const msg = (contents[i] ?? contents[0] ?? dto.caption ?? '').toString();
           if (!img) continue;
-          items.push({ kind: dto.goal.toUpperCase() as 'MESSAGE' | 'TRAFFIC', imageUrl: img, message: msg });
+          items.push({ kind: 'TRAFFIC', imageUrl: img, message: msg });
         }
       } else {
-        if (!dto.imageUrl) throw new BadRequestException(`Thiếu 'images[]' (hoặc 'imageUrl') cho ${dto.goal}`);
-        items.push({ kind: dto.goal.toUpperCase() as 'MESSAGE' | 'TRAFFIC', imageUrl: dto.imageUrl, message: dto.caption || '' });
+        if (!dto.imageUrl) throw new BadRequestException(`Thiếu 'images[]' (hoặc 'imageUrl') cho TRAFFIC`);
+        items.push({ kind: 'TRAFFIC', imageUrl: dto.imageUrl, message: dto.caption || '' });
       }
     }
+
     if (!items.length) throw new BadRequestException('Không tìm thấy item nào để tạo quảng cáo.');
 
     // --- 6) Tạo creatives & ads theo items ---
@@ -999,7 +1034,7 @@ export class FacebookAdsService {
 
       const clean = rawContent.toString().trim().replace(/\s+/g, ' ');
       const snippet = clean ? clean.slice(0, 50) : ''; // 50 ký tự đầu
-     const now = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm');
+      const now = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm');
 
       // ✅ tên ad: ngày giờ + snippet (nhẹ nhàng, giống UI nhưng dài 50 ký tự)
       const adName = snippet ? `Ad ${now} - ${snippet}` : `Ad ${now}`;
@@ -1007,11 +1042,19 @@ export class FacebookAdsService {
       // tạo creative
       let creativeId: string;
       if (it.kind === 'ENGAGEMENT') {
-        creativeId = await createCreativeForEngagement(it.postId);
+        creativeId = await createCreativeForEngagement(it.postId!);
       } else if (it.kind === 'MESSAGE') {
-        creativeId = await createCreativeForMessage(it.imageUrl, it.message);
+        if (it.postId) {
+          // Use existing post as creative (object_story_id)
+          creativeId = await createCreativeForEngagement(it.postId);
+        } else if (it.imageUrl) {
+          creativeId = await createCreativeForMessage(it.imageUrl!, it.message || '');
+        } else {
+          throw new BadRequestException('Invalid MESSAGE item: missing postId or imageUrl');
+        }
       } else {
-        creativeId = await createCreativeForTraffic(it.imageUrl, it.message);
+        // TRAFFIC
+        creativeId = await createCreativeForTraffic(it.imageUrl!, it.message || '');
       }
 
       // tạo ad
@@ -1057,8 +1100,6 @@ export class FacebookAdsService {
 
     return ads;
   }
-
-
 
 
   private async createCampaign(

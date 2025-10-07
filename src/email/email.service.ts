@@ -558,6 +558,7 @@ Trả về đúng JSON như schema đã nêu.
         // 5) Render email HTML
         const htmlReport = `
   <h3>📢 Thống kê quảng cáo</h3>
+   <h3>📅 Báo cáo ngày ${today.format('DD/MM/YYYY')}</h3>
   <p><strong>Ad ID:</strong> ${ad.adId}</p>
   <p><strong>Chiến dịch:</strong> ${ad.campaignName || ''}</p>
   <p><strong>Người tạo:</strong> ${ad.createdBy?.email || ''}</p>

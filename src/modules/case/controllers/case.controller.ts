@@ -97,10 +97,10 @@ export class CaseController {
   }
 
   @Get('ads/:id')
-  // @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'id' })
-  async findByIdanAlysis(@Param('id') id: string): Promise<Case> {
-    return this.queryBus.execute(new FindAdsQuery(id))
+  async findByIdanAlysis(@Param('id') id: string ,@Authen() user: User): Promise<Case> {
+    return this.queryBus.execute(new FindAdsQuery(id ,user))
   }
 
   @Get('credit')
