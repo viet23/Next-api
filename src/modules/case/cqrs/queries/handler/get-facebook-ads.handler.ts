@@ -54,7 +54,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
     @InjectRepository(FacebookAd)
     private readonly facebookAdRepo: Repository<FacebookAd>, // vẫn cần nếu muốn query riêng
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
   async execute(q: GetFacebookAdsQuery): Promise<any> {
     const { filter, user } = q
@@ -98,7 +98,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
       if (!token || !adId) {
         return {
           status: 'PAUSED',
-          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0' },
+          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0', messages: 0 },
         }
       }
       try {
@@ -128,6 +128,20 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
         const ctr = toNumber(fb.ctr)
         const cpm = toNumber(fb.cpm)
 
+        // --- NEW: tính messages từ fb.actions ---
+        let messages = 0
+        if (Array.isArray(fb.actions)) {
+          for (const a of fb.actions) {
+            const atype = a && a.action_type ? String(a.action_type) : ''
+            // bắt các action_type liên quan tới message / conversation / onsite_conversion (thường có các tên khác nhau tuỳ Graph API version)
+            if (/(message|messag|conversation|onsite_conversion|omni_message)/i.test(atype)) {
+              // nhiều trường hợp Facebook trả { action_type: '...', value: '12' }
+              // dùng toNumber an toàn
+              messages += toNumber(a.value ?? a['count'] ?? 0)
+            }
+          }
+        }
+
         return {
           status,
           insights: {
@@ -136,6 +150,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
             spend: formatCurrency(spend),
             ctr: format2(ctr),
             cpm: formatCurrency(format2(cpm)),
+            messages, // <-- trả về số tin nhắn
           },
         }
       } catch (error: any) {
@@ -145,7 +160,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
         )
         return {
           status: 'PAUSED',
-          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0' },
+          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0', messages: 0 },
         }
       }
     }
@@ -169,15 +184,16 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
           }),
         )
 
-        // Tính tổng (optional)
+        // Tính tổng (bao gồm messages)
         const summary = adRealtime.reduce(
           (acc, a) => {
             acc.impressions += toNumber(a.data.impressions)
             acc.clicks += toNumber(a.data.clicks)
             acc.spend += Number((a.data.spend || '0').toString().replace(/,/g, ''))
+            acc.messages += toNumber(a.data.messages ?? 0)
             return acc
           },
-          { impressions: 0, clicks: 0, spend: 0 },
+          { impressions: 0, clicks: 0, spend: 0, messages: 0 },
         )
 
         return {
@@ -194,6 +210,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
             impressions: summary.impressions,
             clicks: summary.clicks,
             spend: formatCurrency(summary.spend),
+            messages: summary.messages,
           },
           ads: adRealtime, // ⬅️ danh sách quảng cáo bên trong
         }
@@ -232,9 +249,10 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
           acc.impressions += toNumber(a.data.impressions)
           acc.clicks += toNumber(a.data.clicks)
           acc.spend += Number((a.data.spend || '0').toString().replace(/,/g, ''))
+          acc.messages += toNumber(a.data.messages ?? 0)
           return acc
         },
-        { impressions: 0, clicks: 0, spend: 0 },
+        { impressions: 0, clicks: 0, spend: 0, messages: 0 },
       )
 
       // Determine earliest createdAt among orphan ads to use as synthetic createdAt (optional)
@@ -257,6 +275,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
           impressions: summary.impressions,
           clicks: summary.clicks,
           spend: formatCurrency(summary.spend),
+          messages: summary.messages,
         },
         ads: adRealtime,
       }

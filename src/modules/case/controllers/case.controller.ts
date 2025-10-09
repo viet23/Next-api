@@ -52,6 +52,7 @@ import { GetCreditQuery } from '../cqrs/queries/impl/get-credit.query'
 import { CreditDoneQuery } from '../cqrs/queries/impl/credit-done.query'
 import { FindAdsQuery } from '../cqrs/queries/impl/find-ads.query'
 import { GetFacebookAdsHistoryQuery } from '../cqrs/queries/impl/get-facebook-ads-detatil.query'
+import { FindAdsHistoryQuery } from '../cqrs/queries/impl/find-ads-history.query'
 
 @Controller('case')
 @ApiTags('case')
@@ -101,6 +102,13 @@ export class CaseController {
   @ApiParam({ name: 'id' })
   async findByIdanAlysis(@Param('id') id: string ,@Authen() user: User): Promise<Case> {
     return this.queryBus.execute(new FindAdsQuery(id ,user))
+  }
+
+   @Get('ads/history/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiParam({ name: 'id' })
+  async findByAdsHistory(@Param('id') id: string ,@Authen() user: User): Promise<Case> {
+    return this.queryBus.execute(new FindAdsHistoryQuery(id ,user))
   }
 
   @Get('credit')

@@ -30,6 +30,7 @@ import { FindAdsQueryHandler } from './cqrs/queries/handler/find-ads.handler'
 import { AdInsight } from '@models/ad-insight.entity'
 import { FacebookCampaign } from '@models/facebook_campaign.entity'
 import { GetFacebookAdsHistoryQueryHandler } from './cqrs/queries/handler/get-facebook-ads-detail.handler'
+import { FindAdsHistoryQueryHandler } from './cqrs/queries/handler/find-ads-history.handler'
 const CommandHandlers = [
   CreateCaseCommandHandler,
   UpdateCaseCommandHandler,
@@ -53,7 +54,8 @@ const QueriesHandler = [
   GetCreditQueryHandler,
   CreditDoneQueryHandler,
   FindAdsQueryHandler,
-  GetFacebookAdsHistoryQueryHandler
+  GetFacebookAdsHistoryQueryHandler,
+  FindAdsHistoryQueryHandler
 ]
 
 @Module({

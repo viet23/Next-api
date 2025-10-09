@@ -50,11 +50,11 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
 
   constructor(
     @InjectRepository(FacebookCampaign)
-    private readonly facebookCampaignRepo: Repository<FacebookCampaign>, // 👈 dùng bảng chiến dịch
+    private readonly facebookCampaignRepo: Repository<FacebookCampaign>,
     @InjectRepository(FacebookAd)
-    private readonly facebookAdRepo: Repository<FacebookAd>, // vẫn cần nếu muốn query riêng
+    private readonly facebookAdRepo: Repository<FacebookAd>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
   async execute(q: GetFacebookAdsHistoryQuery): Promise<any> {
     const { id } = q
@@ -64,20 +64,18 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
     const qb = this.facebookCampaignRepo
       .createQueryBuilder('campaign')
       .leftJoinAndSelect('campaign.createdBy', 'createdBy')
-      .leftJoinAndSelect('campaign.ads', 'ads') // 👈 lấy toàn bộ ads trong chiến dịch
+      .leftJoinAndSelect('campaign.ads', 'ads')
       .where('createdBy.id = :uid', { uid: userData?.id })
       .orderBy('campaign.createdAt', 'DESC')
 
-    // Phân trang theo campaign
+    // Phân trang theo campaign (mặc định lấy nhiều để lịch sử)
     let page = 1
     let pageSize = 100
 
     qb.take(pageSize).skip((page - 1) * pageSize)
 
-
     const [campaigns, campaignTotal] = await qb.getManyAndCount()
 
-    // ===== Nếu không có campaign nào, vẫn tiếp tục vì có thể có orphan ads =====
     // ===== 2) Chuẩn bị FB client per user (dùng cho insights của từng ad) =====
     const token = userData?.accessTokenUser as string | undefined
     const rawCookie = userData?.cookie as string | undefined
@@ -91,12 +89,12 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
       headers: commonHeaders,
     })
 
-    // ===== 3) Helper: fetch status + insights theo adId =====
+    // ===== 3) Helper: fetch status + insights theo adId (kèm messages) =====
     const fetchAdRealtime = async (adId: string) => {
       if (!token || !adId) {
         return {
           status: 'PAUSED',
-          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0' },
+          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0', messages: 0 },
         }
       }
       try {
@@ -126,6 +124,17 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         const ctr = toNumber(fb.ctr)
         const cpm = toNumber(fb.cpm)
 
+        // --- NEW: tính messages từ fb.actions ---
+        let messages = 0
+        if (Array.isArray(fb.actions)) {
+          for (const a of fb.actions) {
+            const atype = a && a.action_type ? String(a.action_type) : ''
+            if (/(message|messag|conversation|onsite_conversion|omni_message)/i.test(atype)) {
+              messages += toNumber(a.value ?? a['count'] ?? 0)
+            }
+          }
+        }
+
         return {
           status,
           insights: {
@@ -134,6 +143,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             spend: formatCurrency(spend),
             ctr: format2(ctr),
             cpm: formatCurrency(format2(cpm)),
+            messages,
           },
         }
       } catch (error: any) {
@@ -143,7 +153,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         )
         return {
           status: 'PAUSED',
-          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0' },
+          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0', messages: 0 },
         }
       }
     }
@@ -151,13 +161,12 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
     // ===== 4) Duyệt từng campaign → map danh sách ads bên trong =====
     const dataFromCampaigns = await Promise.all(
       campaigns.map(async (camp) => {
-        // Lấy realtime cho tất cả ads thuộc campaign (song song)
         const adRealtime = await Promise.all(
           (camp.ads || []).map(async (ad) => {
             const rt = await fetchAdRealtime(ad.adId)
             return {
               adId: ad.adId,
-              name: ad.campaignName, // tên ad (đã đặt khi tạo)
+              name: ad.campaignName,
               caption: ad.caption,
               urlPost: ad.urlPost,
               status: rt.status,
@@ -167,20 +176,21 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           }),
         )
 
-        // Tính tổng (optional)
+        // Tính tổng (bao gồm messages)
         const summary = adRealtime.reduce(
           (acc, a) => {
             acc.impressions += toNumber(a.data.impressions)
             acc.clicks += toNumber(a.data.clicks)
             acc.spend += Number((a.data.spend || '0').toString().replace(/,/g, ''))
+            acc.messages += toNumber(a.data.messages ?? 0)
             return acc
           },
-          { impressions: 0, clicks: 0, spend: 0 },
+          { impressions: 0, clicks: 0, spend: 0, messages: 0 },
         )
 
         return {
-          campaignRefId: camp.id, // id nội bộ (DB)
-          campaignId: camp.campaignId, // id Graph
+          campaignRefId: camp.id,
+          campaignId: camp.campaignId,
           name: camp.name,
           objective: camp.objective,
           startTime: camp.startTime,
@@ -192,8 +202,9 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             impressions: summary.impressions,
             clicks: summary.clicks,
             spend: formatCurrency(summary.spend),
+            messages: summary.messages,
           },
-          ads: adRealtime, // ⬅️ danh sách quảng cáo bên trong
+          ads: adRealtime,
         }
       }),
     )
@@ -205,7 +216,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
       .leftJoin('ad.createdBy', 'createdBy')
       .where('createdBy.id = :uid', { uid: userData?.id })
       .andWhere('campaign.id IS NULL')
-      .orderBy('ad.createdAt', 'ASC') // đặt thứ tự cũ → mới, tuỳ bạn
+      .orderBy('ad.createdAt', 'ASC')
       .getMany()
 
     let syntheticCampaign = null
@@ -230,21 +241,21 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           acc.impressions += toNumber(a.data.impressions)
           acc.clicks += toNumber(a.data.clicks)
           acc.spend += Number((a.data.spend || '0').toString().replace(/,/g, ''))
+          acc.messages += toNumber(a.data.messages ?? 0)
           return acc
         },
-        { impressions: 0, clicks: 0, spend: 0 },
+        { impressions: 0, clicks: 0, spend: 0, messages: 0 },
       )
 
-      // Determine earliest createdAt among orphan ads to use as synthetic createdAt (optional)
       const earliestCreatedAt = adRealtime.reduce((earliest, a) => {
         if (!earliest) return a.createdAt
         return new Date(a.createdAt) < new Date(earliest) ? a.createdAt : earliest
       }, null as any)
 
       syntheticCampaign = {
-        campaignRefId: 0, // dùng 0 để dễ phân biệt
+        campaignRefId: 0,
         campaignId: null,
-        name: 'Dữ liệu phiên bản trước', // tên theo yêu cầu
+        name: 'Dữ liệu phiên bản trước',
         objective: null,
         startTime: null,
         endTime: null,
@@ -255,6 +266,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           impressions: summary.impressions,
           clicks: summary.clicks,
           spend: formatCurrency(summary.spend),
+          messages: summary.messages,
         },
         ads: adRealtime,
       }
@@ -263,7 +275,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
     // ===== 6) Ghép kết quả: campaigns (theo trang) + synthetic (đưa cuối) =====
     const data = [...dataFromCampaigns]
     if (syntheticCampaign) {
-      data.push(syntheticCampaign) // luôn ở cuối
+      data.push(syntheticCampaign)
     }
 
     const total = campaignTotal + (syntheticCampaign ? 1 : 0)

@@ -198,19 +198,25 @@ export class FacebookAdsService {
       if (pp.size) m.publisher_platforms = Array.from(pp);
       return m;
     }
+
+    // ✅ MẶC ĐỊNH 4 VỊ TRÍ NHƯ ẢNH
     const base = {
-      publisher_platforms: ['facebook', 'instagram'],
-      facebook_positions: ['feed'],
-      instagram_positions: ['stream', 'story'],
-    }
+      publisher_platforms: ['facebook', 'messenger'],
+      facebook_positions: ['feed', 'profile_feed', 'search'],  // feed + trang cá nhân + kết quả tìm kiếm
+      messenger_positions: ['messenger_home'],                 // hộp thư Messenger
+    };
+
     if (opts?.disableInstagram) {
       return {
-        publisher_platforms: ['facebook'],
-        facebook_positions: ['feed'],
-      }
+        publisher_platforms: ['facebook', 'messenger'],
+        facebook_positions: ['feed', 'profile_feed', 'search'],
+        messenger_positions: ['messenger_home'],
+      };
     }
-    return base
+
+    return base;
   }
+
 
   // chuẩn hóa geo_locations truyền thô
   private sanitizeGeoLocations(geo?: GeoLocationsInput): any | undefined {
