@@ -89,12 +89,24 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
       headers: commonHeaders,
     })
 
-    // ===== 3) Helper: fetch status + insights theo adId (kèm messages) =====
+    // ===== 3) Helper: fetch status + insights theo adId (kèm messages, cost per message/click) =====
     const fetchAdRealtime = async (adId: string) => {
       if (!token || !adId) {
         return {
           status: 'PAUSED',
-          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0', messages: 0 },
+          insights: {
+            impressions: 0,
+            clicks: 0,
+            spend: '0',
+            spendNumber: 0,
+            ctr: '0.00',
+            cpm: '0',
+            messages: 0,
+            costPerMessage: '0',
+            costPerMessageNumber: 0,
+            costPerClick: '0',
+            costPerClickNumber: 0,
+          },
         }
       }
       try {
@@ -120,7 +132,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
 
         const impressions = toNumber(fb.impressions)
         const clicks = toNumber(fb.clicks)
-        const spend = toNumber(fb.spend)
+        const spendNumber = toNumber(fb.spend)
         const ctr = toNumber(fb.ctr)
         const cpm = toNumber(fb.cpm)
 
@@ -135,15 +147,24 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           }
         }
 
+        // --- NEW: tính cost per message và cost per click (number + formatted) ---
+        const costPerMessageNumber = messages > 0 ? spendNumber / messages : 0
+        const costPerClickNumber = clicks > 0 ? spendNumber / clicks : 0
+
         return {
           status,
           insights: {
             impressions,
             clicks,
-            spend: formatCurrency(spend),
+            spend: formatCurrency(spendNumber),
+            spendNumber,
             ctr: format2(ctr),
             cpm: formatCurrency(format2(cpm)),
             messages,
+            costPerMessage: formatCurrency(format2(costPerMessageNumber)),
+            costPerMessageNumber,
+            costPerClick: formatCurrency(format2(costPerClickNumber)),
+            costPerClickNumber,
           },
         }
       } catch (error: any) {
@@ -153,7 +174,19 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         )
         return {
           status: 'PAUSED',
-          insights: { impressions: 0, clicks: 0, spend: '0', ctr: '0.00', cpm: '0', messages: 0 },
+          insights: {
+            impressions: 0,
+            clicks: 0,
+            spend: '0',
+            spendNumber: 0,
+            ctr: '0.00',
+            cpm: '0',
+            messages: 0,
+            costPerMessage: '0',
+            costPerMessageNumber: 0,
+            costPerClick: '0',
+            costPerClickNumber: 0,
+          },
         }
       }
     }
@@ -181,12 +214,17 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           (acc, a) => {
             acc.impressions += toNumber(a.data.impressions)
             acc.clicks += toNumber(a.data.clicks)
-            acc.spend += Number((a.data.spend || '0').toString().replace(/,/g, ''))
+            const spendNum = toNumber(a.data.spendNumber ?? a.data.spend ?? 0)
+            acc.spend += spendNum
             acc.messages += toNumber(a.data.messages ?? 0)
             return acc
           },
           { impressions: 0, clicks: 0, spend: 0, messages: 0 },
         )
+
+        // Tính chi phí trung bình cho campaign
+        const avgCostPerMessageNumber = summary.messages > 0 ? summary.spend / summary.messages : 0
+        const avgCostPerClickNumber = summary.clicks > 0 ? summary.spend / summary.clicks : 0
 
         return {
           campaignRefId: camp.id,
@@ -202,7 +240,12 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             impressions: summary.impressions,
             clicks: summary.clicks,
             spend: formatCurrency(summary.spend),
+            spendNumber: summary.spend,
             messages: summary.messages,
+            avgCostPerMessage: formatCurrency(format2(avgCostPerMessageNumber)),
+            avgCostPerMessageNumber,
+            avgCostPerClick: formatCurrency(format2(avgCostPerClickNumber)),
+            avgCostPerClickNumber,
           },
           ads: adRealtime,
         }
@@ -240,7 +283,8 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         (acc, a) => {
           acc.impressions += toNumber(a.data.impressions)
           acc.clicks += toNumber(a.data.clicks)
-          acc.spend += Number((a.data.spend || '0').toString().replace(/,/g, ''))
+          const spendNum = toNumber(a.data.spendNumber ?? a.data.spend ?? 0)
+          acc.spend += spendNum
           acc.messages += toNumber(a.data.messages ?? 0)
           return acc
         },
@@ -251,6 +295,9 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         if (!earliest) return a.createdAt
         return new Date(a.createdAt) < new Date(earliest) ? a.createdAt : earliest
       }, null as any)
+
+      const avgCostPerMessageNumber = summary.messages > 0 ? summary.spend / summary.messages : 0
+      const avgCostPerClickNumber = summary.clicks > 0 ? summary.spend / summary.clicks : 0
 
       syntheticCampaign = {
         campaignRefId: 0,
@@ -266,7 +313,12 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           impressions: summary.impressions,
           clicks: summary.clicks,
           spend: formatCurrency(summary.spend),
+          spendNumber: summary.spend,
           messages: summary.messages,
+          avgCostPerMessage: formatCurrency(format2(avgCostPerMessageNumber)),
+          avgCostPerMessageNumber,
+          avgCostPerClick: formatCurrency(format2(avgCostPerClickNumber)),
+          avgCostPerClickNumber,
         },
         ads: adRealtime,
       }
