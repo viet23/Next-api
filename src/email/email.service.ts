@@ -272,7 +272,6 @@ export class EmailService {
     const rows = r.danh_gia.map(d =>
       `<tr>
         <td style="padding:8px;border:1px solid #eee;">${d.chi_so}</td>
-        <td style="padding:8px;border:1px solid #eee;">${badge(d.muc)}</td>
         <td style="padding:8px;border:1px solid #eee;">${d.nhan_xet}</td>
       </tr>`
     ).join('');
@@ -281,7 +280,6 @@ export class EmailService {
         <thead>
           <tr style="background:#f9fafb;">
             <th style="text-align:left;padding:8px;border:1px solid #eee;">Chỉ số</th>
-            <th style="text-align:left;padding:8px;border:1px solid #eee;">Mức</th>
             <th style="text-align:left;padding:8px;border:1px solid #eee;">Nhận xét</th>
           </tr>
         </thead>
@@ -356,6 +354,8 @@ export class EmailService {
               'action_values',
               'video_avg_time_watched_actions',
               'purchase_roas',
+              // BỔ SUNG: cost per action types (nếu có) để tận dụng cost per message trả về từ API
+              'cost_per_action_type',
             ].join(','),
             date_preset: 'maximum',
             ...(appsecret_proof ? { appsecret_proof } : {}),
@@ -419,24 +419,25 @@ export class EmailService {
 
         const systemPrompt = `Bạn là chuyên gia quảng cáo Facebook.
 NHIỆM VỤ:
-1) ĐÁNH GIÁ TỪNG CHỈ SỐ theo {Tốt|Trung bình|Kém} với lý do ngắn gọn: Hiển thị (Impressions), Clicks, Chi phí, CTR, CPM.
-2) ĐƯA 2–3 GỢI Ý tối ưu có tác động lớn nhất.
-3) PHÂN TÍCH TARGETING theo các phần: độ tuổi, giới tính, vị trí địa lý, sở thích/hành vi, vị trí hiển thị; nêu điểm hợp lý & chưa hợp lý; ĐỀ XUẤT 2–3 gợi ý chỉnh targeting.
+1) ĐÁNH GIÁ TỪNG CHỈ SỐ bằng mô tả ngắn gọn, tập trung vào xu hướng và mức độ hiệu quả (không dùng nhãn Tốt/Trung bình/Kém): Hiển thị (Impressions), Clicks, Chi phí, CTR, CPM.
+2) ĐƯA 2–3 GỢI Ý tối ưu có tác động lớn nhất đến hiệu suất quảng cáo.
+3) PHÂN TÍCH TARGETING theo các phần: độ tuổi, giới tính, vị trí địa lý, sở thích/hành vi, vị trí hiển thị; nêu điểm hợp lý & điểm cần cải thiện; ĐỀ XUẤT 2–3 gợi ý chỉnh targeting.
 
 YÊU CẦU: Trả về DUY NHẤT JSON theo schema:
 {
   "danh_gia": [
-    { "chi_so": "Hiển thị", "muc": "Tốt|Trung bình|Kém", "nhan_xet": "..." },
-    { "chi_so": "Clicks", "muc": "Tốt|Trung bình|Kém", "nhan_xet": "..." },
-    { "chi_so": "Chi phí", "muc": "Tốt|Trung bình|Kém", "nhan_xet": "..." },
-    { "chi_so": "CTR", "muc": "Tốt|Trung bình|Kém", "nhan_xet": "..." },
-    { "chi_so": "CPM", "muc": "Tốt|Trung bình|Kém", "nhan_xet": "..." }
+    { "chi_so": "Hiển thị",  "nhan_xet": "..." },
+    { "chi_so": "Clicks", "nhan_xet": "..." },
+    { "chi_so": "Chi phí",  "nhan_xet": "..." },
+    { "chi_so": "CTR",  "nhan_xet": "..." },
+    { "chi_so": "CPM",  "nhan_xet": "..." }
   ],
   "tong_quan": "1–2 câu tổng hợp",
   "goi_y": ["...", "..."],            // 2–3 mục tối ưu hiệu suất
-  "targeting_goi_y": ["...", "..."]   // 2–3 mục tối ưu targeting
+  "targeting_goi_y": ["...", "..."]   // 2–3 mục 
 }
-KHÔNG thêm chữ thừa, KHÔNG markdown.`
+  tối ưu targeting_goi_y dựa trên số liệu TÓM TẮT TARGETING để đưa ra gợi ý phù hợp chi tiết số tuôi phải có có nằm trong khoảng bao nhiêu ví dụ 22 - 40, sở thích/hành vi gì nên thêm/bớt, vị trí địa lý có cần thu hẹp/điều chỉnh không, vị trí hiển thị có nên chọn cụ thể hay để tự động...
+KHÔNG thêm chữ thừa, KHÔNG markdown.`;
 
         const userPrompt = `
 Dưới đây là dữ liệu quảng cáo:
@@ -457,11 +458,12 @@ TARGETING RAW (JSON, có thể thiếu phần):
 ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
 
 Lưu ý:
-- Nếu thiếu benchmark, đánh giá tương đối theo mối quan hệ chỉ số (VD: CTR thấp + CPM cao → hiệu quả Trung bình/Kém).
+- Nếu thiếu benchmark, hãy đánh giá tương đối dựa trên mối quan hệ giữa các chỉ số (VD: CTR thấp + CPM cao → cần cải thiện nội dung hoặc đối tượng).
 - Mỗi mảng gợi ý chỉ tối đa 3 mục.
+- Viết nhận xét khách quan, không quá khắt khe.
 
 Trả về đúng JSON như schema đã nêu.
-`
+`;
 
         const callOpenAI = async () => {
           const body: any = {
@@ -553,9 +555,46 @@ Trả về đúng JSON như schema đã nêu.
             return { label, value };
           });
 
+        // ====== MỚI: TÍNH SỐ TIN NHẮN & CHI PHÍ / TIN NHẮN ======
+        // 1) Tìm tất cả action có liên quan đến 'message' / 'messaging' / 'conversation' trong actions
+        const messageActions = (Array.isArray(data?.actions) ? data.actions : [])
+          .filter((a: any) => {
+            const at = String(a.action_type || '').toLowerCase();
+            return /message|messaging|conversation|messaging_conversation|messaging_conversations|messenger/.test(at);
+          });
+
+        // Tổng số "tin nhắn" (nếu API trả action types dạng này)
+        const messageCount = messageActions.reduce((s: number, a: any) => s + toNum(a.value), 0);
+
+        // 2) Nếu API trả cost_per_action_type (mảng), tìm phần cost cho action liên quan tới message
+        let costPerMessageFromApi: number | null = null;
+        if (Array.isArray(data?.cost_per_action_type)) {
+          const found = data.cost_per_action_type.find((c: any) =>
+            String(c.action_type || '').toLowerCase().includes('message') ||
+            String(c.action_type || '').toLowerCase().includes('messaging') ||
+            String(c.action_type || '').toLowerCase().includes('conversation') ||
+            String(c.action_type || '').toLowerCase().includes('messenger')
+          );
+          if (found) {
+            // Giá trị API trả có thể ở dạng string hoặc number
+            costPerMessageFromApi = toNum(found.value);
+          }
+        }
+
+        // 3) Nếu không có giá từ API, tính tạm: spend / messageCount
+        const costPerMessageComputed = messageCount > 0 ? spend / messageCount : null;
+        // Quyết định sử dụng: ưu tiên giá từ API nếu có, ngược lại dùng computed
+        const costPerMessage = costPerMessageFromApi ?? costPerMessageComputed;
+
+        if (messageCount > 0) {
+          this.logger.log(`✉️ [AdID: ${ad.adId}] Số tin nhắn: ${messageCount}, Chi phí/tin: ${costPerMessage ? Math.round(costPerMessage) : 'N/A'} VND`);
+        } else {
+          this.logger.log(`✉️ [AdID: ${ad.adId}] Không tìm thấy action liên quan đến tin nhắn trong data.actions`);
+        }
+
         const recommendationStr = aiJson ? JSON.stringify(aiJson) : 'Không có khuyến nghị.';
 
-        // 5) Render email HTML
+        // 5) Render email HTML (bổ sung phần tin nhắn)
         const htmlReport = `
   <h3>📢 Thống kê quảng cáo</h3>
    <h3>📅 Báo cáo ngày ${today.format('DD/MM/YYYY')}</h3>
@@ -574,24 +613,28 @@ Trả về đúng JSON như schema đã nêu.
   <p><strong>📌 Tổng tương tác:</strong> ${int(totalEngagement)}</p>
   ${engagementItems.length ? `<ul>${engagementItems.map(e => `<li>${e.label}: ${int(e.value)}</li>`).join('')}</ul>` : ''}
 
+  <hr style="margin:16px 0;"/>
+  <h4>✉️ Tin nhắn (Messaging)</h4>
+  <p><strong>Số lượng hành động liên quan tin nhắn:</strong> ${messageCount ? int(messageCount) : '0'}</p>
+  <p><strong>Chi phí / 1 tin nhắn:</strong> ${costPerMessage ? vnd(costPerMessage) + ' VNĐ' : 'Không xác định'}</p>
+
+  <hr style="margin:16px 0;"/>
+          <h4>🎯 Tóm tắt Targeting</h4>
+          <p>${targetingSummary.summary}</p>
+          <div style="margin-top:8px;">${targetingSummary.lines.length ? `<ul>${targetingSummary.lines.map(l => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>` : ''}</div>
+
+          <hr style="margin:16px 0;"/>
+          <h4>📈 Đánh giá & Gợi ý tối ưu từ AI</h4>
+          ${aiJson?.tong_quan ? `<p><em>${aiJson.tong_quan}</em></p>` : ''}
+          ${this.renderEvalTable(aiJson)}
+          <div style="margin-top:8px;"><strong>Gợi ý hành động:</strong>${this.renderTips(aiJson?.goi_y)}</div>
+
+          <div style="margin-top:12px;">
+            <strong>🎯 Gợi ý tối ưu Targeting:</strong>
+            ${this.renderTips(aiJson?.targeting_goi_y || [])}
+          </div>
  
 `;
-
-        //  <hr style="margin:16px 0;"/>
-        //   <h4>🎯 Tóm tắt Targeting</h4>
-        //   <p>${targetingSummary.summary}</p>
-        //   <div style="margin-top:8px;">${targetingSummary.lines.length ? `<ul>${targetingSummary.lines.map(l => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>` : ''}</div>
-
-        //   <hr style="margin:16px 0;"/>
-        //   <h4>📈 Đánh giá & Gợi ý tối ưu từ AI</h4>
-        //   ${aiJson?.tong_quan ? `<p><em>${aiJson.tong_quan}</em></p>` : ''}
-        //   ${this.renderEvalTable(aiJson)}
-        //   <div style="margin-top:8px;"><strong>Gợi ý hành động:</strong>${this.renderTips(aiJson?.goi_y)}</div>
-
-        //   <div style="margin-top:12px;">
-        //     <strong>🎯 Gợi ý tối ưu Targeting:</strong>
-        //     ${this.renderTips(aiJson?.targeting_goi_y || [])}
-        //   </div>
 
         // 6) Gửi mail cho owner
         if (ad.createdBy?.email) {
@@ -629,7 +672,7 @@ Trả về đúng JSON như schema đã nêu.
             // Lưu cả phần AI (đã bao gồm targeting_goi_y nếu có)
             recommendation: recommendationStr,
 
-            // Lưu nguyên HTML (đã chứa phần targeting + gợi ý)
+            // Lưu nguyên HTML (đã chứa phần targeting + gợi ý + tin nhắn)
             htmlReport: String(htmlReport || ''),
 
             userId: ad.createdBy?.id ? String(ad.createdBy.id) : null,
