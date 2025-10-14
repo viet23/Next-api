@@ -13,7 +13,7 @@ export class GetCreditQueryHandler implements IQueryHandler<GetCreditQuery> {
   constructor(
     @InjectRepository(CreditTransaction) private readonly creditRepo: Repository<CreditTransaction>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
   async execute(q: GetCreditQuery): Promise<CreditTransaction[]> {
     const { user } = q
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
@@ -21,6 +21,5 @@ export class GetCreditQueryHandler implements IQueryHandler<GetCreditQuery> {
       where: { updatedById: userData?.id.toString() },
       order: { paymentDate: 'DESC' },
     })
-
   }
 }

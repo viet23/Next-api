@@ -60,7 +60,7 @@ export class CaseController {
   constructor(
     private readonly queryBus: QueryBus,
     private readonly commandBus: CommandBus,
-  ) { }
+  ) {}
 
   @Get()
   @UseGuards(JwtAuthGuard)
@@ -79,14 +79,13 @@ export class CaseController {
         page: 1,
         pageSize: 10,
         filter: {},
-      };
+      }
     }
-    query.filter.where = query.filter.where || {};
-    query.filter.where.status = CaseStatusEnum.PENDING;
+    query.filter.where = query.filter.where || {}
+    query.filter.where.status = CaseStatusEnum.PENDING
 
-    return this.queryBus.execute(new GetCaseQuery(query.filter, user));
+    return this.queryBus.execute(new GetCaseQuery(query.filter, user))
   }
-
 
   @Get('analysis')
   @UseGuards(JwtAuthGuard)
@@ -100,15 +99,15 @@ export class CaseController {
   @Get('ads/:id')
   @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'id' })
-  async findByIdanAlysis(@Param('id') id: string ,@Authen() user: User): Promise<Case> {
-    return this.queryBus.execute(new FindAdsQuery(id ,user))
+  async findByIdanAlysis(@Param('id') id: string, @Authen() user: User): Promise<Case> {
+    return this.queryBus.execute(new FindAdsQuery(id, user))
   }
 
-   @Get('ads/history/:id')
+  @Get('ads/history/:id')
   @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'id' })
-  async findByAdsHistory(@Param('id') id: string ,@Authen() user: User): Promise<Case> {
-    return this.queryBus.execute(new FindAdsHistoryQuery(id ,user))
+  async findByAdsHistory(@Param('id') id: string, @Authen() user: User): Promise<Case> {
+    return this.queryBus.execute(new FindAdsHistoryQuery(id, user))
   }
 
   @Get('credit')
@@ -216,7 +215,6 @@ export class CaseController {
   async creditDone(@Param('id', ParseUUIDPipe) id: string): Promise<Case> {
     return this.queryBus.execute(new CreditDoneQuery(id))
   }
-
 
   @Post()
   @UseGuards(JwtAuthGuard)

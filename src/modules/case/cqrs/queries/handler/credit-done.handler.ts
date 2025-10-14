@@ -9,8 +9,10 @@ import { CreditTransaction, CreditTransactionStatus } from '@models/credit-ransa
 import { User } from '@models/user.entity'
 @QueryHandler(CreditDoneQuery)
 export class CreditDoneQueryHandler implements IQueryHandler<CreditDoneQuery> {
-  constructor(@InjectRepository(CreditTransaction) private readonly creditRepo: Repository<CreditTransaction>,
-    @InjectRepository(User) private readonly userRepo: Repository<User>,) { }
+  constructor(
+    @InjectRepository(CreditTransaction) private readonly creditRepo: Repository<CreditTransaction>,
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
+  ) {}
   async execute(q: CreditDoneQuery): Promise<CreditTransaction> {
     const { id } = q
     const credit = await this.creditRepo.createQueryBuilder('credit').where('credit.id=:id', { id: id }).getOne()

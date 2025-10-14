@@ -29,6 +29,7 @@ import { UpdateAdStatusDto } from './dto/update-ad-status.dto'
 
 import { User } from '@models/user.entity'
 import { SetStatusService } from './set-status.service'
+import { FacebookPostIInternalService } from 'src/facebook-post/facebook-post-internal.service'
 
 @ApiTags('facebook-ads')
 @Controller('facebook-ads')
@@ -38,9 +39,9 @@ export class FacebookAdsController {
     private readonly fbpostService: FacebookPostService,
     private readonly fbAdsUpdate: FacebookAdsUpdateService,
     private readonly targetingSearch: TargetingSearchService,
-     private readonly setStatus: SetStatusService,
+    private readonly setStatus: SetStatusService,
+    private readonly internalService: FacebookPostIInternalService,
 
-    
     @InjectRepository(User) private readonly userRepo: Repository<User>,
   ) {}
 
@@ -53,10 +54,7 @@ export class FacebookAdsController {
   @Put(':id')
   @UseGuards(JwtAuthGuard)
   @ApiParam({ name: 'id' })
-  async updateflag(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: AdInsightUpdateDTO,
-  ): Promise<Partial<any>> {
+  async updateflag(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AdInsightUpdateDTO): Promise<Partial<any>> {
     return this.fbAdsUpdate.updateAdInsight(id, dto)
   }
 
@@ -68,8 +66,14 @@ export class FacebookAdsController {
     @Query('effective_status') effectiveStatusCsv = 'ACTIVE,PAUSED,ARCHIVED',
     @Query('apiVersion') apiVersion = 'v19.0',
   ) {
-    const fields = fieldsCsv.split(',').map((s) => s.trim()).filter(Boolean)
-    const effective_status = effectiveStatusCsv.split(',').map((s) => s.trim()).filter(Boolean)
+    const fields = fieldsCsv
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const effective_status = effectiveStatusCsv
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
 
     // (giữ nguyên demo hardcode; bạn có thể thay bằng token/account từ DB như flow createAd)
     const adAccountId = '930874367109118'
@@ -92,6 +96,18 @@ export class FacebookAdsController {
   @UseGuards(JwtAuthGuard)
   async fetchFromGraph(@Authen() user: User) {
     if (!user?.email) throw new BadRequestException('Không xác định được email người dùng từ token.')
+    console.log('fetchFromGraph user:', user)
+    if (!user?.email) {
+      throw new BadRequestException('Không xác định được email người dùng từ token.')
+    }
+    const userData = await this.userRepo.findOne({ where: { email: user.email } })
+    if (!userData) {
+      throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`)
+    }
+
+    if (userData.isInternal) {
+      return this.internalService.fetchPagePostsForUser(user)
+    }
     return this.fbpostService.fetchPagePostsForUser(user)
   }
 
@@ -110,15 +126,11 @@ export class FacebookAdsController {
     const f = all?.filter ?? {}
 
     // chấp nhận nhiều tên tham số + filter[]
-    const q = String(
-      (all.q ?? all.query ?? all.keyword ?? f.q ?? f.query ?? f.keyword ?? '').toString(),
-    ).trim()
+    const q = String((all.q ?? all.query ?? all.keyword ?? f.q ?? f.query ?? f.keyword ?? '').toString()).trim()
     if (!q) return [] // hoặc throw new BadRequestException('q is required')
 
     const country_code = String(all.country_code ?? f.country_code ?? 'VN')
-    const location_types = String(
-      all.location_types ?? f.location_types ?? '["city","region","country","subcity"]',
-    )
+    const location_types = String(all.location_types ?? f.location_types ?? '["city","region","country","subcity"]')
     const limit = String(all.limit ?? f.limit ?? '10')
     const version = String(all.version ?? f.version ?? 'v23.0')
     const normalize = String(all.normalize ?? f.normalize ?? '1')

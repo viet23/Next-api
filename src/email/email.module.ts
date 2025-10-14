@@ -10,7 +10,7 @@ import { CreditTransaction } from '@models/credit-ransaction .entity'
 import { AdInsight } from '@models/ad-insight.entity'
 
 @Module({
-  imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd,CreditTransaction,AdInsight]), CqrsModule],
+  imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd, CreditTransaction, AdInsight]), CqrsModule],
   controllers: [EmailController],
   providers: [EmailService],
   exports: [EmailService],

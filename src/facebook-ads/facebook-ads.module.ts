@@ -16,8 +16,13 @@ import { SetStatusService } from './set-status.service'
 import { FacebookCampaign } from '@models/facebook_campaign.entity'
 
 @Module({
-  imports: [HttpModule, TypeOrmModule.forFeature([User, FacebookAd,AdInsight, FacebookCampaign]), CqrsModule,FacebookPostModule],
-  providers: [FacebookAdsService , AiPlannerService, FacebookAdsUpdateService ,TargetingSearchService , SetStatusService],
+  imports: [
+    HttpModule,
+    TypeOrmModule.forFeature([User, FacebookAd, AdInsight, FacebookCampaign]),
+    CqrsModule,
+    FacebookPostModule,
+  ],
+  providers: [FacebookAdsService, AiPlannerService, FacebookAdsUpdateService, TargetingSearchService, SetStatusService],
   controllers: [FacebookAdsController],
   exports: [FacebookAdsService],
 })

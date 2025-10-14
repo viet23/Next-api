@@ -46,10 +46,10 @@ export type LocationType = 'country' | 'region' | 'city' | 'subcity' | 'neighbor
 
 export interface TargetingSearchParams {
   q: string
-  country_code?: string                // default 'VN'
-  location_types?: string              // default '["city","region","country","subcity"]' (JSON string)
-  limit?: string                       // default '10'
-  version?: string                     // default 'v23.0'
+  country_code?: string // default 'VN'
+  location_types?: string // default '["city","region","country","subcity"]' (JSON string)
+  limit?: string // default '10'
+  version?: string // default 'v23.0'
 }
 
 export interface NormalizedGeoItem {
@@ -71,7 +71,7 @@ export interface SelectedLocation {
   country_code?: string
   latitude?: number
   longitude?: number
-  radius?: number                      // theo đơn vị client truyền
+  radius?: number // theo đơn vị client truyền
   radiusUnit?: 'm' | 'km' | 'mi'
   distance_unit?: 'kilometer' | 'mile'
 }
@@ -93,7 +93,7 @@ export class TargetingSearchService {
   /** Gọi Graph API: /search?type=adgeolocation (tìm địa điểm giống Ads Manager) */
   async search(
     params: TargetingSearchParams,
-    opts?: { token?: string; cookie?: string } // truyền accessTokenUser/cookie của user đang đăng nhập
+    opts?: { token?: string; cookie?: string }, // truyền accessTokenUser/cookie của user đang đăng nhập
   ) {
     const {
       q,
@@ -127,9 +127,7 @@ export class TargetingSearchService {
   normalize(items: any[] = []): NormalizedGeoItem[] {
     return items.map((it) => {
       const type = String(it.type || '').toLowerCase() as LocationType
-      const supports =
-        it.supports_radius ??
-        ['city', 'subcity', 'neighborhood'].includes(type)
+      const supports = it.supports_radius ?? ['city', 'subcity', 'neighborhood'].includes(type)
       const label = `[${type}] ${[it.name, it.region, it.country_name || it.country_code].filter(Boolean).join(' · ')}`
       return {
         key: String(it.key),
@@ -151,9 +149,9 @@ export class TargetingSearchService {
     let miles: number
     if (unit === 'mi') miles = value
     else if (unit === 'km') miles = value / 1.609
-    else if (unit === 'm') miles = (value / 1000) / 1.609
+    else if (unit === 'm') miles = value / 1000 / 1.609
     else {
-      if (value > 2000) miles = (value / 1000) / 1.609
+      if (value > 2000) miles = value / 1000 / 1.609
       else if (value > 50) miles = value / 1.609
       else miles = value
     }

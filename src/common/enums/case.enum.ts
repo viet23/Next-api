@@ -28,4 +28,3 @@ export enum ActionType {
   GENERATE_IMAGE = 'generate_image',
   GENERATE_IMAGE_CAPTION = 'generate_image_caption',
 }
-

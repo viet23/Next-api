@@ -1,39 +1,31 @@
-import {
-  Entity,
-  Column,
-  BeforeInsert,
-  BeforeUpdate,
-  ManyToMany,
-  JoinTable,
-  OneToMany,
-} from 'typeorm';
-import { createHmac } from 'crypto';
-import { BaseEntity } from './base.entity';
-import { Group } from './group.entity';
-import { FacebookAd } from './facebook-ad.entity';
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { UserSubscription } from './user-subscription.entity';
-import { FacebookCampaign } from './facebook_campaign.entity';
+import { Entity, Column, BeforeInsert, BeforeUpdate, ManyToMany, JoinTable, OneToMany } from 'typeorm'
+import { createHmac } from 'crypto'
+import { BaseEntity } from './base.entity'
+import { Group } from './group.entity'
+import { FacebookAd } from './facebook-ad.entity'
+import { ApiPropertyOptional } from '@nestjs/swagger'
+import { UserSubscription } from './user-subscription.entity'
+import { FacebookCampaign } from './facebook_campaign.entity'
 
 @Entity({ name: 'tbl_users' })
 export class User extends BaseEntity {
   @Column({ name: 'username', unique: true })
-  username: string;
+  username: string
 
   @Column({ name: 'phone', unique: true, nullable: true })
-  phone: string;
+  phone: string
 
   @Column({ name: 'zalo', unique: true, nullable: true })
-  zalo: string;
+  zalo: string
 
   @Column({ name: 'extension', nullable: true })
-  extension: string;
+  extension: string
 
   @Column({ name: 'access_token', nullable: true })
-  accessToken: string;
+  accessToken: string
 
   @Column({ name: 'cookie', nullable: true })
-  cookie: string;
+  cookie: string
 
   @ApiPropertyOptional({
     example: [
@@ -42,51 +34,69 @@ export class User extends BaseEntity {
     ],
     description: 'Danh sách idPage và accessToken',
   })
+  @Column({ type: 'jsonb', nullable: true })
+  pageInformation?: { idPage?: string; accessToken?: string }[]
 
   @Column({ type: 'jsonb', nullable: true })
-  pageInformation?: { idPage?: string; accessToken?: string }[];
-
-  @Column({ type: 'jsonb', nullable: true })
-  adsInformation?: { idAds?: string; accessToken?: string }[];
+  adsInformation?: { idAds?: string; accessToken?: string }[]
 
   @Column({ name: 'id_page', nullable: true })
-  idPage: string;
+  idPage: string
 
   @Column({ name: 'access_token_user', nullable: true })
-  accessTokenUser: string;
+  accessTokenUser: string
+
+  @Column({ name: 'internal_user_access_token', nullable: true })
+  internalUserAccessToken: string
+
+  @Column({ name: 'internal_page_access_token', nullable: true })
+  internalPageAccessToken: string
+
+  @ApiPropertyOptional({
+    example: [
+      { idPage: '1234567890', accessToken: 'EAAG...' },
+      { idPage: '9876543210', accessToken: 'EAAX...' },
+    ],
+    description: 'Danh sách idPage và accessToken',
+  })
+  @Column({ type: 'jsonb', nullable: true })
+  internalPageInformation?: { idPage?: string; accessToken?: string }[]
+
+  @Column({ name: 'is_internal', default: false })
+  isInternal: boolean
 
   @Column({ name: 'account_ads_id', nullable: true })
-  accountAdsId: string;
+  accountAdsId: string
 
   @Column({ name: 'full_name', nullable: true })
-  fullName: string;
+  fullName: string
 
   @Column({ name: 'password' })
-  password: string;
+  password: string
 
   @Column({ name: 'facebook_id', nullable: true, unique: true })
-  facebookId: string;
+  facebookId: string
 
   @Column({ name: 'email', nullable: true, unique: true })
-  email: string;
+  email: string
 
   @Column({ name: 'avatar', nullable: true })
-  avatar: string;
+  avatar: string
 
   @Column({ name: 'provider', nullable: true })
-  provider: string;
+  provider: string
 
   @Column({ name: 'credits', type: 'int', default: 100 })
-  credits: number;
+  credits: number
 
   @Column({ name: 'reset_token', nullable: true })
-  resetToken: string;
+  resetToken: string
 
   @Column({ name: 'reset_token_expire', type: 'timestamp', nullable: true })
-  resetTokenExpire: Date;
+  resetTokenExpire: Date
 
   @Column({ name: 'is_active', default: false })
-  isActive: boolean;
+  isActive: boolean
 
   @ManyToMany(() => Group, (group) => group.users)
   @JoinTable({
@@ -94,24 +104,22 @@ export class User extends BaseEntity {
     joinColumn: { name: 'user_id' },
     inverseJoinColumn: { name: 'group_id' },
   })
-  groups: Group[];
+  groups: Group[]
 
   @OneToMany(() => UserSubscription, (sub) => sub.user)
-  subscriptions: UserSubscription[];
-
+  subscriptions: UserSubscription[]
 
   @OneToMany(() => FacebookCampaign, (c) => c.createdBy)
-  facebookCampaigns: FacebookCampaign[];
+  facebookCampaigns: FacebookCampaign[]
 
   @OneToMany(() => FacebookAd, (a) => a.createdBy)
-  facebookAds: FacebookAd[];
-
+  facebookAds: FacebookAd[]
 
   @BeforeInsert()
   @BeforeUpdate()
   encryptPassword(): void {
     if (this.password && this.password.length !== 64) {
-      this.password = createHmac('sha256', this.password).digest('hex');
+      this.password = createHmac('sha256', this.password).digest('hex')
     }
   }
 }

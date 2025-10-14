@@ -19,7 +19,11 @@ const CommandHandlers = [UpdateUserCommandHandler, UpdateUserGroupCommandHandler
 const QueriesHandler = [GetUsersQueryHandler, FindOneUserQueryHandler]
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Role, Group, User,CreditTransaction,SubscriptionPlan,UserSubscription]), CqrsModule,EmailModule],
+  imports: [
+    TypeOrmModule.forFeature([Role, Group, User, CreditTransaction, SubscriptionPlan, UserSubscription]),
+    CqrsModule,
+    EmailModule,
+  ],
   controllers: [UsersController],
   exports: [UsersService],
   providers: [...CommandHandlers, ...QueriesHandler, UsersService],

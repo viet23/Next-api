@@ -12,7 +12,7 @@ export class CreateCaseCommandHandler implements ICommandHandler<CreateCaseComma
   constructor(
     @InjectRepository(Case) private readonly caseRepo: Repository<Case>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
   async execute(command: CreateCaseCommand): Promise<Case> {
     const { dto, user } = command
@@ -30,23 +30,20 @@ export class CreateCaseCommandHandler implements ICommandHandler<CreateCaseComma
     caseNew.updatedById = userData?.id.toString()
     const caseData = await this.caseRepo.save(caseNew)
 
-    console.log(`caseData--------`, caseData);
-    
+    console.log(`caseData--------`, caseData)
 
     if (dto.action == ActionType.GENERATE_IMAGE) {
-      
       userData.credits = userData.credits - 8
-     console.log(`userData----------`, userData);
+      console.log(`userData----------`, userData)
       await this.userRepo.save(userData)
     }
 
     if (dto.action == ActionType.GENERATE_VIDEO) {
       userData.credits = userData.credits - 50
 
-      console.log(`userData---------`, userData);
+      console.log(`userData---------`, userData)
       await this.userRepo.save(userData)
     }
-
 
     return caseData
   }

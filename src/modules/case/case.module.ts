@@ -55,11 +55,23 @@ const QueriesHandler = [
   CreditDoneQueryHandler,
   FindAdsQueryHandler,
   GetFacebookAdsHistoryQueryHandler,
-  FindAdsHistoryQueryHandler
+  FindAdsHistoryQueryHandler,
 ]
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Case, GtelpayCustomer, User, AnalysisFb,FacebookAd,CreditTransaction,AdInsight,FacebookCampaign]), CqrsModule],
+  imports: [
+    TypeOrmModule.forFeature([
+      Case,
+      GtelpayCustomer,
+      User,
+      AnalysisFb,
+      FacebookAd,
+      CreditTransaction,
+      AdInsight,
+      FacebookCampaign,
+    ]),
+    CqrsModule,
+  ],
   controllers: [CaseController],
   exports: [],
   providers: [...QueriesHandler, ...CommandHandlers],

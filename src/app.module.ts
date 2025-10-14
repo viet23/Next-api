@@ -22,9 +22,10 @@ import session from 'express-session'
 import { FacebookStrategy } from './modules/auth/facebook.strategy'
 import { EmailModule } from './email/email.module'
 import { FacebookModule } from './facebook-ads/facebook-ads.module'
-import { OpenaiModule } from './openai/openai.module';
-import { FacebookPostModule } from './facebook-post/facebook-post.module';
-import { CapiModule } from './capi/capi.module';
+import { OpenaiModule } from './openai/openai.module'
+import { FacebookPostModule } from './facebook-post/facebook-post.module'
+import { CapiModule } from './capi/capi.module'
+import { SyncFacebookModule } from './sync-facebook/sync-facebook.module'
 
 @Module({
   imports: [
@@ -69,6 +70,7 @@ import { CapiModule } from './capi/capi.module';
     OpenaiModule,
     FacebookPostModule,
     CapiModule,
+    SyncFacebookModule,
   ],
   controllers: [AppController],
   providers: [AppService, FacebookStrategy],

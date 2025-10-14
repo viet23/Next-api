@@ -4,5 +4,4 @@ import { ApiProperty } from '@nestjs/swagger'
 export class AdInsightUpdateDTO {
   @ApiProperty()
   isActive: boolean
-
 }

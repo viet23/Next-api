@@ -1,6 +1,6 @@
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsOptional, IsString } from 'class-validator'
 
 export class UpdateAdStatusDto {
   @IsBoolean()
-  isActive!: boolean;
+  isActive!: boolean
 }

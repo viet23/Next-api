@@ -1,16 +1,16 @@
-import { Module } from '@nestjs/common';
-import { OpenaiController } from './openai.controller';
-import { OpenaiService } from './openai.service';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from '@models/user.entity';
-import { CqrsModule } from '@nestjs/cqrs';
-import { FacebookModule } from 'src/facebook-ads/facebook-ads.module';
-import { TopcamFb } from '@models/topcam-fb.entity';
-import { FacebookPost } from '@models/facebook_post.entity';
+import { Module } from '@nestjs/common'
+import { OpenaiController } from './openai.controller'
+import { OpenaiService } from './openai.service'
+import { TypeOrmModule } from '@nestjs/typeorm'
+import { User } from '@models/user.entity'
+import { CqrsModule } from '@nestjs/cqrs'
+import { FacebookModule } from 'src/facebook-ads/facebook-ads.module'
+import { TopcamFb } from '@models/topcam-fb.entity'
+import { FacebookPost } from '@models/facebook_post.entity'
 
 @Module({
-  imports: [FacebookModule, TypeOrmModule.forFeature([User,TopcamFb , FacebookPost]), CqrsModule],
+  imports: [FacebookModule, TypeOrmModule.forFeature([User, TopcamFb, FacebookPost]), CqrsModule],
   controllers: [OpenaiController],
-  providers: [OpenaiService]
+  providers: [OpenaiService],
 })
-export class OpenaiModule { }
+export class OpenaiModule {}

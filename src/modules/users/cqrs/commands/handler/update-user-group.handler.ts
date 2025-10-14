@@ -16,9 +16,9 @@ export class UpdateUserGroupCommandHandler implements ICommandHandler<UpdateUser
     if (!user) {
       throw new NotFoundException('Find not found user')
     }
-    console.log(`dto`, dto);
-    console.log(`groupIds`, dto.groupIds);
-    
+    console.log(`dto`, dto)
+    console.log(`groupIds`, dto.groupIds)
+
     if (dto.extension) user.extension = dto.extension
     if (dto.fullName) user.fullName = dto.fullName
     if (dto.isActive) user.isActive = dto.isActive
@@ -29,6 +29,8 @@ export class UpdateUserGroupCommandHandler implements ICommandHandler<UpdateUser
     user.cookie = dto.cookie
     user.accessToken = dto.accessToken
     user.accessTokenUser = dto.accessTokenUser
+    user.internalUserAccessToken = dto.internalUserAccessToken
+    user.internalPageAccessToken = dto.internalPageAccessToken
     user.accountAdsId = dto.accountAdsId
     user.groups = dto.groupIds?.map((groupId) => Object.assign(new Group(), { id: groupId }))
 

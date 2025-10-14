@@ -16,7 +16,7 @@ export class Case extends BaseEntity {
   @Column({ name: 'task_id', type: 'varchar', nullable: true })
   taskId: string
 
-   @Column({ name: 'action', type: 'varchar', nullable: true })
+  @Column({ name: 'action', type: 'varchar', nullable: true })
   action: string
 
   private formatDate(date: Date): string {

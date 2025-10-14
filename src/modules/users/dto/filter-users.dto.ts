@@ -9,5 +9,4 @@ export class FilterUsersDto {
 
   @ApiProperty()
   plan: string
-
 }

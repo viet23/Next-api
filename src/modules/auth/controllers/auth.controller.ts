@@ -1,4 +1,15 @@
-import { BadRequestException, Body, Controller, Get, Logger, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common'
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Logger,
+  Post,
+  Req,
+  Res,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common'
 import { CommandBus, QueryBus } from '@nestjs/cqrs'
 import { ApiTags } from '@nestjs/swagger'
 import { UserSignInDTO } from '../dto/user-signin.dto'
@@ -26,11 +37,11 @@ export class AuthController {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly authService: AuthService,
-  ) { }
+  ) {}
 
   @Post('register-trial')
   async registerTrial(@Body() dto: RegisterTrialDto) {
-    return this.authService.registerTrial(dto);
+    return this.authService.registerTrial(dto)
   }
 
   // Đăng nhập bằng username/password
@@ -70,7 +81,7 @@ export class AuthController {
     const user = await this.usersService.findOrCreateFromGoogle(req.user)
 
     if (user?.phone?.length == 0) {
-      throw new BadRequestException('Tài khoản chưa đăng ký số điện thoại quay lại đăng ký');
+      throw new BadRequestException('Tài khoản chưa đăng ký số điện thoại quay lại đăng ký')
     }
     const token = await this.jwtService.signAsync({ email: req.user.email })
 
@@ -110,11 +121,11 @@ export class AuthController {
 
   @Get('saml/login')
   @UseGuards(AuthGuard('saml'))
-  async samlLogin() { }
+  async samlLogin() {}
 
   @Get('saml/login-gtelpay')
   @UseGuards(AuthGuard('saml-gtelpay'))
-  async samlLoginGtelpay() { }
+  async samlLoginGtelpay() {}
 
   @Post('saml/login')
   @UseGuards(CookieAuthGuard)

@@ -15,8 +15,8 @@ export class SignInQueryHandler implements IQueryHandler<SignInQuery> {
   ) {}
   async execute(query: SignInQuery): Promise<any> {
     const { dto } = query
-    console.log(`dto`, dto);
-    
+    console.log(`dto`, dto)
+
     const user = await this.userRepo
       .createQueryBuilder()
       .where('email =:email', { email: dto.username })

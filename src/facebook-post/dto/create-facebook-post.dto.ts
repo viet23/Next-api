@@ -1,4 +1,3 @@
-
 import { IsArray, IsOptional, IsString, IsUrl } from 'class-validator'
 
 export class CreateFacebookPostDto {

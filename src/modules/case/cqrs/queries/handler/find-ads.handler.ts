@@ -1,24 +1,24 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
-import { FindAdsQuery } from '../impl/find-ads.query';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Logger } from '@nestjs/common';
-import moment from 'moment-timezone';
-import * as crypto from 'crypto';
-import axios from 'axios';
-import { FacebookAd } from '@models/facebook-ad.entity';
-import { AdInsight } from '@models/ad-insight.entity';
+import { IQueryHandler, QueryHandler } from '@nestjs/cqrs'
+import { FindAdsQuery } from '../impl/find-ads.query'
+import { InjectRepository } from '@nestjs/typeorm'
+import { Repository } from 'typeorm'
+import { Logger } from '@nestjs/common'
+import moment from 'moment-timezone'
+import * as crypto from 'crypto'
+import axios from 'axios'
+import { FacebookAd } from '@models/facebook-ad.entity'
+import { AdInsight } from '@models/ad-insight.entity'
 
 type AIReturn = {
-  danh_gia: { chi_so: string; muc?: 'Tốt' | 'Trung bình' | 'Kém'; nhan_xet: string }[];
-  tong_quan?: string;
-  goi_y?: string[];
-  targeting_goi_y?: string[];
-};
+  danh_gia: { chi_so: string; muc?: 'Tốt' | 'Trung bình' | 'Kém'; nhan_xet: string }[]
+  tong_quan?: string
+  goi_y?: string[]
+  targeting_goi_y?: string[]
+}
 
 @QueryHandler(FindAdsQuery)
 export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
-  private readonly logger = new Logger(FindAdsQueryHandler.name);
+  private readonly logger = new Logger(FindAdsQueryHandler.name)
 
   constructor(
     @InjectRepository(FacebookAd)
@@ -26,95 +26,91 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
 
     @InjectRepository(AdInsight)
     private readonly adInsightRepo: Repository<AdInsight>,
-  ) { }
+  ) {}
 
   /** Helper: tóm tắt targeting gọn cho email & prompt */
   private summarizeTargeting(t: any) {
-    if (!t) return { summary: 'Không có dữ liệu targeting.', lines: [], raw: null };
+    if (!t) return { summary: 'Không có dữ liệu targeting.', lines: [], raw: null }
 
-    const genderMap: Record<number, string> = { 1: 'Nam', 2: 'Nữ' };
+    const genderMap: Record<number, string> = { 1: 'Nam', 2: 'Nữ' }
     const genders =
       Array.isArray(t.genders) && t.genders.length
         ? t.genders.map((g: number) => genderMap[g] ?? String(g)).join(', ')
-        : 'Không giới hạn';
+        : 'Không giới hạn'
 
-    const age =
-      (t.age_min || t.age_max) ? `${t.age_min || 13}–${t.age_max || 65}+` : 'Không giới hạn';
+    const age = t.age_min || t.age_max ? `${t.age_min || 13}–${t.age_max || 65}+` : 'Không giới hạn'
 
-    const loc = t.geo_locations || {};
+    const loc = t.geo_locations || {}
 
     const customLocs: string[] = Array.isArray(loc.custom_locations)
       ? loc.custom_locations.slice(0, 3).map((c: any) => {
-        const lat = Number(c.latitude);
-        const lng = Number(c.longitude);
-        const r = Number(c.radius);
-        const unit = String(c.distance_unit || 'mile');
-        const latStr = Number.isFinite(lat) ? lat.toFixed(4) : '?';
-        const lngStr = Number.isFinite(lng) ? lng.toFixed(4) : '?';
-        const radiusMi = Number.isFinite(r) ? r : NaN;
-        const radiusKm = Number.isFinite(radiusMi) ? (unit === 'mile' ? radiusMi * 1.609 : radiusMi) : NaN;
-        const radiusTxt =
-          Number.isFinite(radiusMi)
+          const lat = Number(c.latitude)
+          const lng = Number(c.longitude)
+          const r = Number(c.radius)
+          const unit = String(c.distance_unit || 'mile')
+          const latStr = Number.isFinite(lat) ? lat.toFixed(4) : '?'
+          const lngStr = Number.isFinite(lng) ? lng.toFixed(4) : '?'
+          const radiusMi = Number.isFinite(r) ? r : NaN
+          const radiusKm = Number.isFinite(radiusMi) ? (unit === 'mile' ? radiusMi * 1.609 : radiusMi) : NaN
+          const radiusTxt = Number.isFinite(radiusMi)
             ? unit === 'mile'
               ? `${radiusMi} mi (~${radiusKm.toFixed(1)} km)`
               : `${radiusKm.toFixed(1)} km`
-            : '';
-        return `${latStr},${lngStr}${radiusTxt ? ` (${radiusTxt})` : ''}`;
-      })
-      : [];
+            : ''
+          return `${latStr},${lngStr}${radiusTxt ? ` (${radiusTxt})` : ''}`
+        })
+      : []
 
-    const countries =
-      Array.isArray(loc.countries) && loc.countries.length ? loc.countries.join(', ') : null;
+    const countries = Array.isArray(loc.countries) && loc.countries.length ? loc.countries.join(', ') : null
 
     const cities =
       Array.isArray(loc.cities) && loc.cities.length
         ? loc.cities
-          .slice(0, 3)
-          .map((c: any) =>
-            `${c.name || c.key}${c.distance_unit && c.radius ? ` (+${c.radius}${c.distance_unit})` : ''}`
-          )
-          .join(' • ')
-        : null;
+            .slice(0, 3)
+            .map(
+              (c: any) => `${c.name || c.key}${c.distance_unit && c.radius ? ` (+${c.radius}${c.distance_unit})` : ''}`,
+            )
+            .join(' • ')
+        : null
 
     const regions =
       Array.isArray(loc.regions) && loc.regions.length
-        ? loc.regions.map((r: any) => r.name || r.key).slice(0, 3).join(' • ')
-        : null;
+        ? loc.regions
+            .map((r: any) => r.name || r.key)
+            .slice(0, 3)
+            .join(' • ')
+        : null
 
     const locationStr =
       (customLocs.length && customLocs.join(' • ')) ||
       cities ||
       [countries, regions].filter(Boolean).join(' | ') ||
-      'Không giới hạn';
+      'Không giới hạn'
 
-    const interestsFromFlex: string[] = (Array.isArray(t.flexible_spec) ? t.flexible_spec : [])
-      .flatMap((spec: any) =>
-        Array.isArray(spec.interests) ? spec.interests.map((i: any) => i.name) : []
-      );
-    const interestsRoot: string[] = Array.isArray(t.interests)
-      ? t.interests.map((i: any) => i?.name || i)
-      : [];
-    const interests = [...interestsFromFlex, ...interestsRoot];
+    const interestsFromFlex: string[] = (Array.isArray(t.flexible_spec) ? t.flexible_spec : []).flatMap((spec: any) =>
+      Array.isArray(spec.interests) ? spec.interests.map((i: any) => i.name) : [],
+    )
+    const interestsRoot: string[] = Array.isArray(t.interests) ? t.interests.map((i: any) => i?.name || i) : []
+    const interests = [...interestsFromFlex, ...interestsRoot]
 
-    const behaviors: string[] = (Array.isArray(t.flexible_spec) ? t.flexible_spec : [])
-      .flatMap((spec: any) =>
-        Array.isArray(spec.behaviors) ? spec.behaviors.map((b: any) => b.name) : []
-      );
+    const behaviors: string[] = (Array.isArray(t.flexible_spec) ? t.flexible_spec : []).flatMap((spec: any) =>
+      Array.isArray(spec.behaviors) ? spec.behaviors.map((b: any) => b.name) : [],
+    )
 
     const exclusions: string[] = Array.isArray(t.exclusions?.interests)
       ? t.exclusions.interests.map((i: any) => i.name)
-      : [];
+      : []
 
     const placementDetail = (() => {
-      const platforms = Array.isArray(t.publisher_platforms) ? t.publisher_platforms.join(', ') : '';
+      const platforms = Array.isArray(t.publisher_platforms) ? t.publisher_platforms.join(', ') : ''
       const pos =
         (Array.isArray(t.instagram_positions) && t.instagram_positions.length
           ? t.instagram_positions
           : Array.isArray(t.facebook_positions) && t.facebook_positions.length
             ? t.facebook_positions
-            : t.positions || []) || [];
-      return pos.length ? `${platforms || '—'} / ${pos.join(', ')}` : platforms || 'Tự động';
-    })();
+            : t.positions || []) || []
+      return pos.length ? `${platforms || '—'} / ${pos.join(', ')}` : platforms || 'Tự động'
+    })()
 
     const lines: string[] = [
       `• Độ tuổi: ${age}`,
@@ -124,24 +120,27 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
       behaviors.length ? `• Hành vi: ${behaviors.slice(0, 10).join(', ')}` : '',
       exclusions.length ? `• Loại trừ: ${exclusions.slice(0, 10).join(', ')}` : '',
       `• Vị trí hiển thị: ${placementDetail}`,
-    ].filter(Boolean);
+    ].filter(Boolean)
 
     return {
       summary: `Độ tuổi ${age}; ${genders.toLowerCase()}; vị trí ${locationStr.toLowerCase()}; ${interests.length ? `có ${interests.length} interest` : 'không set interest'}, ${behaviors.length ? `${behaviors.length} behavior` : 'không set behavior'}.`,
       lines,
       raw: t,
-    };
+    }
   }
 
   /** Helper: render bảng đánh giá */
   private renderEvalTable(r: AIReturn | null) {
-    if (!r?.danh_gia?.length) return '<p>Không có đánh giá từ AI.</p>';
-    const rows = r.danh_gia.map(d =>
-      `<tr>
+    if (!r?.danh_gia?.length) return '<p>Không có đánh giá từ AI.</p>'
+    const rows = r.danh_gia
+      .map(
+        (d) =>
+          `<tr>
         <td style="padding:8px;border:1px solid #eee;">${d.chi_so}</td>
         <td style="padding:8px;border:1px solid #eee;">${d.nhan_xet}</td>
-      </tr>`
-    ).join('');
+      </tr>`,
+      )
+      .join('')
     return `
       <table style="border-collapse:collapse;width:100%;margin-top:6px;">
         <thead>
@@ -151,81 +150,77 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
           </tr>
         </thead>
         <tbody>${rows}</tbody>
-      </table>`;
+      </table>`
   }
 
   /** Helper: render bullets */
   private renderTips(items?: string[]) {
-    if (!items || !items.length) return '<p>Không có gợi ý.</p>';
-    const li = items.map(g => `<li>${g}</li>`).join('');
-    return `<ul style="padding-left:18px;margin:6px 0 0 0;">${li}</ul>`;
+    if (!items || !items.length) return '<p>Không có gợi ý.</p>'
+    const li = items.map((g) => `<li>${g}</li>`).join('')
+    return `<ul style="padding-left:18px;margin:6px 0 0 0;">${li}</ul>`
   }
 
   async execute(query: FindAdsQuery): Promise<any> {
-    const { id, user } = query;
-    this.logger.log(`🔍 Bắt đầu lấy dữ liệu quảng cáo cho adId=${id}`);
+    const { id, user } = query
+    this.logger.log(`🔍 Bắt đầu lấy dữ liệu quảng cáo cho adId=${id}`)
 
     const ad = await this.facebookAdRepo.findOne({
       where: { adId: id, createdBy: { email: user.email } },
       relations: ['createdBy'],
-    });
+    })
 
     if (!ad) {
-      this.logger.warn(`⚠️ Không tìm thấy quảng cáo có adId=${id} của user=${user.email}`);
-      return null;
+      this.logger.warn(`⚠️ Không tìm thấy quảng cáo có adId=${id} của user=${user.email}`)
+      return null
     }
 
-    const { startTime, endTime } = ad;
-    const start = moment(startTime).startOf('day');
-    const end = moment(endTime).endOf('day');
+    const { startTime, endTime } = ad
+    const start = moment(startTime).startOf('day')
+    const end = moment(endTime).endOf('day')
 
     // --- Lấy các bản ghi đã có trong khoảng thời gian ---
     const existingInsights = await this.adInsightRepo.find({
       where: { adId: id },
       order: { createdAt: 'ASC' },
-    });
+    })
 
-    const existingDates = existingInsights.map(i =>
-      moment(i.createdAt).format('YYYY-MM-DD'),
-    );
+    const existingDates = existingInsights.map((i) => moment(i.createdAt).format('YYYY-MM-DD'))
 
     // --- Danh sách ngày cần có ---
-    const allDates: string[] = [];
-    let cursor = start.clone();
+    const allDates: string[] = []
+    let cursor = start.clone()
     while (cursor.isSameOrBefore(end)) {
-      allDates.push(cursor.format('YYYY-MM-DD'));
-      cursor.add(1, 'day');
+      allDates.push(cursor.format('YYYY-MM-DD'))
+      cursor.add(1, 'day')
     }
 
     // --- Ngày thiếu ---
-    const missingDates = allDates.filter(d => !existingDates.includes(d));
+    const missingDates = allDates.filter((d) => !existingDates.includes(d))
 
     if (missingDates.length === 0) {
-      this.logger.log(`✅ Đã có đủ báo cáo từ ${start.format('YYYY-MM-DD')} → ${end.format('YYYY-MM-DD')}`);
-      return existingInsights;
+      this.logger.log(`✅ Đã có đủ báo cáo từ ${start.format('YYYY-MM-DD')} → ${end.format('YYYY-MM-DD')}`)
+      return existingInsights
     }
 
-    this.logger.log(`🧩 Còn thiếu ${missingDates.length} ngày: ${missingDates.join(', ')}`);
+    this.logger.log(`🧩 Còn thiếu ${missingDates.length} ngày: ${missingDates.join(', ')}`)
 
     // ====== Cấu hình Facebook API ======
-    const token = ad.createdBy?.accessTokenUser;
-    const rawCookie = ad.createdBy?.cookie;
-    const appsecret = process.env.FB_APP_SECRET;
+    const token = ad.createdBy?.accessTokenUser
+    const rawCookie = ad.createdBy?.cookie
+    const appsecret = process.env.FB_APP_SECRET
 
-    const headers: Record<string, string> = { Accept: 'application/json' };
-    if (rawCookie) headers.Cookie = rawCookie;
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const headers: Record<string, string> = { Accept: 'application/json' }
+    if (rawCookie) headers.Cookie = rawCookie
+    if (token) headers.Authorization = `Bearer ${token}`
 
     const appsecret_proof =
-      token && appsecret
-        ? crypto.createHmac('sha256', appsecret).update(token).digest('hex')
-        : undefined;
+      token && appsecret ? crypto.createHmac('sha256', appsecret).update(token).digest('hex') : undefined
 
     // ====== Vòng lặp lấy dữ liệu từng ngày ======
     for (const date of missingDates) {
       try {
-        const dateStart = moment(date).startOf('day');
-        const dateStop = moment(date).endOf('day');
+        const dateStart = moment(date).startOf('day')
+        const dateStop = moment(date).endOf('day')
 
         const fbRes = await axios.get(`https://graph.facebook.com/v19.0/${id}/insights`, {
           params: {
@@ -256,16 +251,16 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
           },
           headers,
           timeout: 20000,
-        });
+        })
 
-        const data = fbRes.data?.data?.[0];
+        const data = fbRes.data?.data?.[0]
         if (!data) {
-          this.logger.warn(`⚠️ Không có dữ liệu insights cho ngày ${date}`);
-          continue;
+          this.logger.warn(`⚠️ Không có dữ liệu insights cho ngày ${date}`)
+          continue
         }
 
         // lấy targeting
-        let targeting: any = null;
+        let targeting: any = null
         try {
           const tRes = await axios.get(`https://graph.facebook.com/v19.0/${id}`, {
             params: {
@@ -274,37 +269,35 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
             },
             headers,
             timeout: 15000,
-          });
-          targeting = tRes.data?.targeting || null;
+          })
+          targeting = tRes.data?.targeting || null
         } catch (tErr: any) {
-          this.logger.warn(`⚠️ Không lấy được targeting cho ad ${id} ngày ${date}: ${tErr.message}`);
+          this.logger.warn(`⚠️ Không lấy được targeting cho ad ${id} ngày ${date}: ${tErr.message}`)
         }
 
         // ====== Chuẩn hoá dữ liệu ======
         const toNum = (v: any, def = 0) => {
-          const n = Number(v);
-          return Number.isFinite(n) ? n : def;
-        };
-        const vnd = (v: any) => toNum(v).toLocaleString('vi-VN', { maximumFractionDigits: 0 });
-        const pct = (v: any, digits = 2) => toNum(v).toFixed(digits);
-        const int = (v: any) => Math.round(toNum(v)).toLocaleString('vi-VN');
+          const n = Number(v)
+          return Number.isFinite(n) ? n : def
+        }
+        const vnd = (v: any) => toNum(v).toLocaleString('vi-VN', { maximumFractionDigits: 0 })
+        const pct = (v: any, digits = 2) => toNum(v).toFixed(digits)
+        const int = (v: any) => Math.round(toNum(v)).toLocaleString('vi-VN')
 
-        const impressions = toNum(data.impressions);
-        const reach = toNum(data.reach);
-        const frequency = toNum(data.frequency);
-        const clicks = toNum(data.clicks);
-        const inlineLinkClicks = toNum(data.inline_link_clicks);
-        const spend = toNum(data.spend);
-        const ctr = toNum(data.ctr);
-        const cpm = toNum(data.cpm);
-        const cpc = toNum(data.cpc);
+        const impressions = toNum(data.impressions)
+        const reach = toNum(data.reach)
+        const frequency = toNum(data.frequency)
+        const clicks = toNum(data.clicks)
+        const inlineLinkClicks = toNum(data.inline_link_clicks)
+        const spend = toNum(data.spend)
+        const ctr = toNum(data.ctr)
+        const cpm = toNum(data.cpm)
+        const cpc = toNum(data.cpc)
 
-        this.logger.log(
-          `📊 [AdID: ${id}] ${date} - Impr: ${impressions}, Click: ${clicks}, Spend: ${vnd(spend)}đ`
-        );
+        this.logger.log(`📊 [AdID: ${id}] ${date} - Impr: ${impressions}, Click: ${clicks}, Spend: ${vnd(spend)}đ`)
 
         // ====== Tương tác ======
-        const actions = Array.isArray(data?.actions) ? data.actions : [];
+        const actions = Array.isArray(data?.actions) ? data.actions : []
         const actionTypeMap: Record<string, string> = {
           post_engagement: 'Tương tác với bài viết',
           page_engagement: 'Tương tác với trang',
@@ -317,50 +310,60 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
           view_content: 'Xem nội dung',
           add_to_cart: 'Thêm vào giỏ',
           purchase: 'Mua hàng',
-        };
-        let totalEngagement = 0;
+        }
+        let totalEngagement = 0
         const engagementItems = actions
           .filter((a: any) => actionTypeMap[a.action_type])
           .map((a: any) => {
-            const label = actionTypeMap[a.action_type] || a.action_type;
-            const value = toNum(a.value);
-            totalEngagement += value;
-            return { label, value };
-          });
+            const label = actionTypeMap[a.action_type] || a.action_type
+            const value = toNum(a.value)
+            totalEngagement += value
+            return { label, value }
+          })
 
         // ====== MỚI: TÍNH SỐ TIN NHẮN & CHI PHÍ / TIN NHẮN ======
-        const messageActions = actions
-          .filter((a: any) => {
-            const at = String(a.action_type || '').toLowerCase();
-            return /message|messaging|conversation|messenger/.test(at);
-          });
+        const messageActions = actions.filter((a: any) => {
+          const at = String(a.action_type || '').toLowerCase()
+          return /message|messaging|conversation|messenger/.test(at)
+        })
 
-        const messageCount = messageActions.reduce((s: number, a: any) => s + toNum(a.value), 0);
+        const messageCount = messageActions.reduce((s: number, a: any) => s + toNum(a.value), 0)
 
-        let costPerMessageFromApi: number | null = null;
+        let costPerMessageFromApi: number | null = null
         if (Array.isArray(data?.cost_per_action_type)) {
-          const found = data.cost_per_action_type.find((c: any) =>
-            String(c.action_type || '').toLowerCase().includes('message') ||
-            String(c.action_type || '').toLowerCase().includes('messaging') ||
-            String(c.action_type || '').toLowerCase().includes('conversation') ||
-            String(c.action_type || '').toLowerCase().includes('messenger')
-          );
-          if (found) costPerMessageFromApi = toNum(found.value);
+          const found = data.cost_per_action_type.find(
+            (c: any) =>
+              String(c.action_type || '')
+                .toLowerCase()
+                .includes('message') ||
+              String(c.action_type || '')
+                .toLowerCase()
+                .includes('messaging') ||
+              String(c.action_type || '')
+                .toLowerCase()
+                .includes('conversation') ||
+              String(c.action_type || '')
+                .toLowerCase()
+                .includes('messenger'),
+          )
+          if (found) costPerMessageFromApi = toNum(found.value)
         }
 
-        const costPerMessageComputed = messageCount > 0 ? spend / messageCount : null;
-        const costPerMessage = costPerMessageFromApi ?? costPerMessageComputed;
+        const costPerMessageComputed = messageCount > 0 ? spend / messageCount : null
+        const costPerMessage = costPerMessageFromApi ?? costPerMessageComputed
 
         if (messageCount > 0) {
-          this.logger.log(`✉️ [AdID: ${id}] ${date} - Số tin nhắn: ${messageCount}, Chi phí/tin: ${costPerMessage ? Math.round(costPerMessage) : 'N/A'} VND`);
+          this.logger.log(
+            `✉️ [AdID: ${id}] ${date} - Số tin nhắn: ${messageCount}, Chi phí/tin: ${costPerMessage ? Math.round(costPerMessage) : 'N/A'} VND`,
+          )
         } else {
-          this.logger.log(`✉️ [AdID: ${id}] ${date} - Không tìm thấy action liên quan tin nhắn`);
+          this.logger.log(`✉️ [AdID: ${id}] ${date} - Không tìm thấy action liên quan tin nhắn`)
         }
 
         // ====== CALL OPENAI (AI đánh giá & gợi ý) ======
-        let aiJson: AIReturn | null = null;
+        let aiJson: AIReturn | null = null
         try {
-          const targetingSummary = this.summarizeTargeting(targeting);
+          const targetingSummary = this.summarizeTargeting(targeting)
 
           const systemPrompt = `Bạn là chuyên gia quảng cáo Facebook.
 NHIỆM VỤ:
@@ -381,7 +384,7 @@ YÊU CẦU: Trả về DUY NHẤT JSON theo schema:
   "goi_y": ["...", "..."],
   "targeting_goi_y": ["...", "..."]
 }
-KHÔNG thêm chữ thừa, KHÔNG markdown.`;
+KHÔNG thêm chữ thừa, KHÔNG markdown.`
 
           const userPrompt = `
 Dưới đây là dữ liệu quảng cáo:
@@ -408,18 +411,18 @@ Lưu ý:
 - Nếu thiếu benchmark, hãy đánh giá tương đối dựa trên mối quan hệ giữa các chỉ số.
 - Mỗi mảng gợi ý chỉ tối đa 3 mục.
 Trả về đúng JSON như schema đã nêu.
-`;
+`
 
           if (process.env.OPENAI_API_KEY) {
             const body: any = {
               model: 'gpt-4',
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt }
+                { role: 'user', content: userPrompt },
               ],
               temperature: 0.2,
               max_tokens: 700,
-            };
+            }
 
             const openaiRes = await axios.post('https://api.openai.com/v1/chat/completions', body, {
               headers: {
@@ -427,30 +430,30 @@ Trả về đúng JSON như schema đã nêu.
                 'Content-Type': 'application/json',
               },
               timeout: 30000,
-            });
+            })
 
-            const raw = openaiRes.data?.choices?.[0]?.message?.content ?? '{}';
+            const raw = openaiRes.data?.choices?.[0]?.message?.content ?? '{}'
             const safeSlice = (t: string) => {
-              const start = t.indexOf('{');
-              const end = t.lastIndexOf('}');
-              return start >= 0 && end >= 0 ? t.slice(start, end + 1) : '{}';
-            };
+              const start = t.indexOf('{')
+              const end = t.lastIndexOf('}')
+              return start >= 0 && end >= 0 ? t.slice(start, end + 1) : '{}'
+            }
             try {
-              aiJson = JSON.parse(safeSlice(raw));
+              aiJson = JSON.parse(safeSlice(raw))
             } catch (parseErr) {
-              this.logger.warn(`⚠️ Không parse được JSON từ OpenAI cho ad ${id} ${date}: ${parseErr.message}`);
-              aiJson = null;
+              this.logger.warn(`⚠️ Không parse được JSON từ OpenAI cho ad ${id} ${date}: ${parseErr.message}`)
+              aiJson = null
             }
           } else {
-            this.logger.debug('ℹ️ OPENAI_API_KEY chưa cấu hình — bỏ qua bước gọi OpenAI.');
+            this.logger.debug('ℹ️ OPENAI_API_KEY chưa cấu hình — bỏ qua bước gọi OpenAI.')
           }
         } catch (aiErr: any) {
-          this.logger.error(`⚠️ Lỗi khi gọi OpenAI cho ad ${id} ngày ${date}: ${aiErr?.message || aiErr}`);
-          aiJson = null;
+          this.logger.error(`⚠️ Lỗi khi gọi OpenAI cho ad ${id} ngày ${date}: ${aiErr?.message || aiErr}`)
+          aiJson = null
         }
 
         // ====== HTML Report ======
-        const targetingSummary = this.summarizeTargeting(targeting);
+        const targetingSummary = this.summarizeTargeting(targeting)
         const htmlReport = `
       <h3>📅 Báo cáo ngày ${dateStart.format('DD/MM/YYYY')}</h3>
       <p><strong>Ad ID:</strong> ${ad.adId}</p>
@@ -466,7 +469,7 @@ Trả về đúng JSON như schema đã nêu.
       <p><strong>📊 CTR:</strong> ${pct(ctr)}% &nbsp;•&nbsp; CPM: ${vnd(cpm)} VNĐ &nbsp;•&nbsp; CPC: ${vnd(cpc)} VNĐ</p>
 
       <p><strong>📌 Tổng tương tác:</strong> ${int(totalEngagement)}</p>
-      ${engagementItems.length ? `<ul>${engagementItems.map(e => `<li>${e.label}: ${int(e.value)}</li>`).join('')}</ul>` : ''}
+      ${engagementItems.length ? `<ul>${engagementItems.map((e) => `<li>${e.label}: ${int(e.value)}</li>`).join('')}</ul>` : ''}
 
       <hr style="margin:16px 0;"/>
       <h4>✉️ Tin nhắn (Messaging)</h4>
@@ -476,7 +479,7 @@ Trả về đúng JSON như schema đã nêu.
       <hr style="margin:16px 0;"/>
       <h4>🎯 Tóm tắt Targeting</h4>
       <p>${targetingSummary.summary}</p>
-      <div style="margin-top:8px;">${targetingSummary.lines.length ? `<ul>${targetingSummary.lines.map(l => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>` : ''}</div>
+      <div style="margin-top:8px;">${targetingSummary.lines.length ? `<ul>${targetingSummary.lines.map((l) => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>` : ''}</div>
 
       <hr style="margin:16px 0;"/>
       <h4>📈 Đánh giá & Gợi ý tối ưu từ AI</h4>
@@ -488,14 +491,12 @@ Trả về đúng JSON như schema đã nêu.
         <strong>🎯 Gợi ý tối ưu Targeting:</strong>
         ${this.renderTips(aiJson?.targeting_goi_y || [])}
       </div>
-    `;
+    `
 
         // ====== Kiểm tra xem ngày này đã có trong DB chưa (theo createdAt date) ======
         const existingInsight = await this.adInsightRepo.findOne({
-          where: [
-            { adId: String(id), createdAt: dateStart.startOf('day').toDate() },
-          ],
-        });
+          where: [{ adId: String(id), createdAt: dateStart.startOf('day').toDate() }],
+        })
 
         if (existingInsight) {
           Object.assign(existingInsight, {
@@ -510,23 +511,25 @@ Trả về đúng JSON như schema đã nêu.
             cpcVnd: vnd(cpc),
             totalEngagement: String(totalEngagement),
             engagementDetails: JSON.stringify(engagementItems),
-            recommendation: aiJson ? JSON.stringify(aiJson) : (existingInsight.recommendation || null),
+            recommendation: aiJson ? JSON.stringify(aiJson) : existingInsight.recommendation || null,
             htmlReport,
             updatedAt: new Date(),
-          });
+          })
 
-          await this.adInsightRepo.save(existingInsight);
-          this.logger.log(`♻️ Đã cập nhật báo cáo ngày ${dateStart.format('DD/MM/YYYY')} cho ad ${id}`);
+          await this.adInsightRepo.save(existingInsight)
+          this.logger.log(`♻️ Đã cập nhật báo cáo ngày ${dateStart.format('DD/MM/YYYY')} cho ad ${id}`)
         } else {
           const dup = await this.adInsightRepo
             .createQueryBuilder('insight')
             .where('insight.adId = :adId', { adId: String(id) })
             .andWhere('insight.htmlReport LIKE :dateStr', { dateStr: `%${dateStart.format('DD/MM/YYYY')}%` })
-            .getOne();
+            .getOne()
 
           if (dup) {
-            this.logger.log(`⚠️ Báo cáo ngày ${dateStart.format('DD/MM/YYYY')} cho ad ${id} đã tồn tại (theo html), bỏ qua.`);
-            continue;
+            this.logger.log(
+              `⚠️ Báo cáo ngày ${dateStart.format('DD/MM/YYYY')} cho ad ${id} đã tồn tại (theo html), bỏ qua.`,
+            )
+            continue
           }
 
           const newInsight = this.adInsightRepo.create({
@@ -549,13 +552,13 @@ Trả về đúng JSON như schema đã nêu.
             userId: ad.createdBy?.id ? String(ad.createdBy.id) : null,
             createdAt: dateStart.startOf('day').toDate(),
             updatedAt: new Date(),
-          });
+          })
 
-          await this.adInsightRepo.save(newInsight);
-          this.logger.log(`💾 Đã lưu báo cáo ngày ${dateStart.format('DD/MM/YYYY')} cho ad ${id}`);
+          await this.adInsightRepo.save(newInsight)
+          this.logger.log(`💾 Đã lưu báo cáo ngày ${dateStart.format('DD/MM/YYYY')} cho ad ${id}`)
         }
       } catch (err: any) {
-        this.logger.error(`❌ Lỗi khi lấy báo cáo ngày ${moment(date).format('DD/MM/YYYY')}: ${err?.message || err}`);
+        this.logger.error(`❌ Lỗi khi lấy báo cáo ngày ${moment(date).format('DD/MM/YYYY')}: ${err?.message || err}`)
       }
     }
 
@@ -564,9 +567,9 @@ Trả về đúng JSON như schema đã nêu.
       .createQueryBuilder('adInsight')
       .where('adInsight.adId = :id', { id })
       .orderBy('adInsight.createdAt', 'ASC')
-      .getMany();
+      .getMany()
 
-    this.logger.log(`✅ Hoàn tất đồng bộ ${finalReports.length} bản ghi insight cho ad ${id}`);
-    return finalReports;
+    this.logger.log(`✅ Hoàn tất đồng bộ ${finalReports.length} bản ghi insight cho ad ${id}`)
+    return finalReports
   }
 }

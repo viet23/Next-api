@@ -13,8 +13,8 @@ import { QueryFacebookPostDto } from './dto/query-facebook-post.dto'
 import { User } from '@models/user.entity'
 
 @Injectable()
-export class FacebookPostService {
-  private readonly logger = new Logger(FacebookPostService.name)
+export class FacebookPostIInternalService {
+  private readonly logger = new Logger(FacebookPostIInternalService.name)
 
   constructor(
     @InjectRepository(FacebookPost)
@@ -123,11 +123,10 @@ export class FacebookPostService {
 
   // ================== HỖ TRỢ GỌI GRAPH ==================
 
-  /** header dùng cho mọi call Graph (giữ Cookie nếu cần) */
-  private fbHeaders(token?: string, rawCookie?: string) {
+  /** header dùng cho mọi call Graph (KHÔNG dùng Cookie nữa) */
+  private fbHeaders(token?: string) {
     const h: Record<string, string> = { Accept: 'application/json' }
     if (token) h.Authorization = `Bearer ${token}`
-    if (rawCookie) h.Cookie = rawCookie // "c_user=...; xs=...; fr=..."
     h['Accept-Encoding'] = 'gzip, deflate'
     h['Connection'] = 'keep-alive'
     return h
@@ -158,9 +157,11 @@ export class FacebookPostService {
   /**
    * Lấy posts (light) — dùng bộ fields an toàn. Nếu API trả lỗi (400/12) thì trả [] (không crash).
    */
-  private async fetchAllPostsFromGraph(pageId: string, accessToken: string, rawCookie: string, useFeed = false) {
+  private async fetchAllPostsFromGraph(pageId: string, accessToken: string, useFeed = false) {
     const MAX_POSTS = 150 // giới hạn
     const PAGE_SIZE = 25 // 25–50 hợp lý
+    console.log(`fetchAllPostsFromGraph pageId=${pageId} useFeed=${useFeed}`)
+    console.log(`accessToken: ${accessToken ? accessToken.substring(0, 10) + '...' : 'N/A'}`)
 
     const fields = this.buildSafePostFields()
     const endpoint = useFeed ? 'feed' : 'posts'
@@ -179,9 +180,7 @@ export class FacebookPostService {
 
     try {
       while (url && all.length < MAX_POSTS) {
-        const { data } = await this.withRetry(() =>
-          this.fbHttp.get(url!, { headers: this.fbHeaders(accessToken, rawCookie) }),
-        )
+        const { data } = await this.withRetry(() => this.fbHttp.get(url!, { headers: this.fbHeaders(accessToken) }))
 
         if (Array.isArray(data?.data) && data.data.length) {
           all.push(...data.data)
@@ -209,7 +208,7 @@ export class FacebookPostService {
    * Trả về object { cta, attachments } hoặc null nếu lỗi / deprecated.
    * Rất cẩn trọng: nếu FB trả lỗi code 12 (deprecate) — catch và trả null.
    */
-  private async fetchCTAForPost(postId: string, accessToken: string, rawCookie?: string) {
+  private async fetchCTAForPost(postId: string, accessToken: string) {
     const appsecret_proof = this.buildAppSecretProof(accessToken)
 
     // fields nhẹ nhàng cho per-post CTA check (cẩn trọng)
@@ -223,9 +222,7 @@ export class FacebookPostService {
     const url = `https://graph.facebook.com/v19.0/${postId}?${params.toString()}`
 
     try {
-      const { data } = await this.withRetry(() =>
-        this.fbHttp.get(url, { headers: this.fbHeaders(accessToken, rawCookie) }),
-      )
+      const { data } = await this.withRetry(() => this.fbHttp.get(url, { headers: this.fbHeaders(accessToken) }))
       return {
         cta: data?.call_to_action ?? null,
         attachments: data?.attachments?.data ?? null,
@@ -252,7 +249,7 @@ export class FacebookPostService {
   }
 
   /** Lấy reach (post_impressions_unique) cho từng post id */
-  private async fetchReachForPosts(postIds: string[], accessToken: string, rawCookie?: string) {
+  private async fetchReachForPosts(postIds: string[], accessToken: string) {
     const appsecret_proof = this.buildAppSecretProof(accessToken)
     const out = new Map<string, number>()
 
@@ -272,7 +269,7 @@ export class FacebookPostService {
           const { data } = await this.withRetry(() =>
             this.fbHttp.get(`https://graph.facebook.com/v19.0/${id}/insights`, {
               params,
-              headers: this.fbHeaders(accessToken, rawCookie),
+              headers: this.fbHeaders(accessToken),
             }),
           )
           const reach = data?.data?.[0]?.values?.[0]?.value ?? 0
@@ -347,15 +344,16 @@ export class FacebookPostService {
     if (!pageId) throw new BadRequestException('Thiếu pageId')
     if (!user.accessToken) throw new BadRequestException('User thiếu accessTokenUser')
 
-    const accessToken = user.accessToken
-    const rawCookie = user.cookie // "c_user=...; xs=...; fr=..."
+    const accessToken = user.internalPageAccessToken
+
+    console.log(`fetchPagePostsForUser user=${user.email} pageId=${pageId}`)
 
     // 1) posts (light)
-    const posts = await this.fetchAllPostsFromGraph(pageId, accessToken, rawCookie)
+    const posts = await this.fetchAllPostsFromGraph(pageId, accessToken)
 
     // 2) reach từng post
     const idList = posts.map((p: any) => p?.id).filter(Boolean)
-    const reachMap = await this.fetchReachForPosts(idList, accessToken, rawCookie)
+    const reachMap = await this.fetchReachForPosts(idList, accessToken)
 
     // 3) fetch CTA per-post with concurrency (to avoid rate-limit)
     const CTA_CONCURRENCY = 3
@@ -366,7 +364,7 @@ export class FacebookPostService {
       while (queue.length) {
         const pid = queue.shift()!
         try {
-          const res = await this.fetchCTAForPost(pid, accessToken, rawCookie)
+          const res = await this.fetchCTAForPost(pid, accessToken)
           ctaResults.set(pid, res) // res may be null if deprecated or error
         } catch (e: any) {
           this.logger.warn('[fetchPagePostsForUser] CTA fetch worker error', { pid, message: e?.message })
@@ -439,14 +437,13 @@ export class FacebookPostService {
   private async fetchPageViewsDaily(
     pageId: string,
     accessToken: string,
-    rawCookie?: string,
     days = 14,
   ): Promise<Array<{ name: string; views: number }>> {
     if (!pageId || !accessToken) throw new BadRequestException('Missing pageId/accessToken')
 
     const metric = 'page_views_total'
     const appsecret_proof = this.buildAppSecretProof(accessToken)
-    const headers = this.fbHeaders(accessToken, rawCookie)
+    const headers = this.fbHeaders(accessToken)
     const baseUrl = `https://graph.facebook.com/v19.0/${pageId}/insights`
 
     // helper: format [{ name:'dd/MM', views }]
@@ -531,7 +528,7 @@ export class FacebookPostService {
   /**
    * Wrapper theo user – trả mảng { name: 'dd/MM', views: number } cho FE vẽ chart
    * - Nếu không truyền pageId: lấy từ user.idPage
-   * - Lấy token/cookie từ DB theo user.email
+   * - Lấy token từ DB theo user.email (không dùng cookie)
    */
   async fetchPageViewsForUser(userdto: User, days = 14) {
     const userEmail = userdto.email
@@ -541,12 +538,11 @@ export class FacebookPostService {
 
     const pageId = pageIdOptional || user.idPage
     if (!pageId) throw new BadRequestException('Thiếu pageId')
-    if (!user.accessToken) throw new BadRequestException('User thiếu accessTokenUser')
+    if (!user.internalPageAccessToken) throw new BadRequestException('User thiếu accessTokenUser')
 
-    const accessToken = user.accessToken
-    const rawCookie = user.cookie
+    const accessToken = user.internalPageAccessToken
 
-    const data = await this.fetchPageViewsDaily(pageId, accessToken, rawCookie, days)
+    const data = await this.fetchPageViewsDaily(pageId, accessToken, days)
     return { ok: true, data } // FE setDataChart(json.data)
   }
 }

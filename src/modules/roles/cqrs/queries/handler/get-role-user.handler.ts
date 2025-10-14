@@ -1,21 +1,20 @@
-import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { GetRoleUserQuery } from '../impl/get-role-user.query';
-import { User } from '@models/user.entity';
+import { IQueryHandler, QueryHandler } from '@nestjs/cqrs'
+import { InjectRepository } from '@nestjs/typeorm'
+import { Repository } from 'typeorm'
+import { GetRoleUserQuery } from '../impl/get-role-user.query'
+import { User } from '@models/user.entity'
 
 @QueryHandler(GetRoleUserQuery)
-export class GetRoleUserQueryHandler
-  implements IQueryHandler<GetRoleUserQuery> {
+export class GetRoleUserQueryHandler implements IQueryHandler<GetRoleUserQuery> {
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
   async execute(query: GetRoleUserQuery): Promise<any> {
-    const { user } = query;
+    const { user } = query
 
-    let userData: User;
+    let userData: User
 
     if (user?.email) {
       userData = await this.userRepo
@@ -26,7 +25,7 @@ export class GetRoleUserQueryHandler
         .leftJoinAndSelect('subscriptions.plan', 'plan')
         .where({ email: user.email })
         .orderBy('subscriptions.endDate', 'DESC')
-        .getOne();
+        .getOne()
     } else {
       userData = await this.userRepo
         .createQueryBuilder('user')
@@ -36,29 +35,27 @@ export class GetRoleUserQueryHandler
         .leftJoinAndSelect('subscriptions.plan', 'plan')
         .where({ id: user.id })
         .orderBy('subscriptions.updatedAt', 'DESC')
-        .getOne();
+        .getOne()
     }
 
-    if (!userData) return [];
+    if (!userData) return []
 
     // Lấy subscription mới nhất
-    const currentSubscription = userData.subscriptions?.length
-      ? userData.subscriptions[0]
-      : null;
+    const currentSubscription = userData.subscriptions?.length ? userData.subscriptions[0] : null
 
     // Map groups và thêm currentPlan vào từng group
     return userData.groups.map((g) => ({
       ...g,
       currentPlan: currentSubscription
         ? {
-          id: currentSubscription.id,
-          name: currentSubscription.plan?.name,
-          price: currentSubscription.plan?.price,
-          startDate: currentSubscription.startDate,
-          endDate: currentSubscription.endDate,
-          isPaid: currentSubscription.isPaid,
-        }
+            id: currentSubscription.id,
+            name: currentSubscription.plan?.name,
+            price: currentSubscription.plan?.price,
+            startDate: currentSubscription.startDate,
+            endDate: currentSubscription.endDate,
+            isPaid: currentSubscription.isPaid,
+          }
         : null,
-    }));
+    }))
   }
 }

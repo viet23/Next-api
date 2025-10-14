@@ -18,12 +18,12 @@ export class EmailController {
     return this.emailService.sendFormEmail(body)
   }
 
-   @Post('send-credits')
-     @UseGuards(JwtAuthGuard)
-  async sendCredits(@Body() body: any,  @Authen() user: User) {
+  @Post('send-credits')
+  @UseGuards(JwtAuthGuard)
+  async sendCredits(@Body() body: any, @Authen() user: User) {
     console.log(`body-------------`, body)
 
-    return this.emailService.sendCredits(body , user)
+    return this.emailService.sendCredits(body, user)
   }
 
   //  @Post()

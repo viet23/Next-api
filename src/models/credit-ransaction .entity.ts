@@ -17,13 +17,13 @@ export class CreditTransaction extends BaseEntity {
   @Column({ name: 'credits_purchased', type: 'int' })
   creditsPurchased: number
 
-  @Column({ name: 'code', type: 'varchar' , nullable: true })
+  @Column({ name: 'code', type: 'varchar', nullable: true })
   code: string
 
   @Column({ name: 'updated_by_id', nullable: true })
   updatedById: string
 
-   @Column({
+  @Column({
     name: 'status',
     type: 'enum',
     enum: CreditTransactionStatus,

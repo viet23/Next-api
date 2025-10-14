@@ -53,7 +53,9 @@ export class FacebookAdsUpdateService {
   ) {}
 
   // ---------- Utils ----------
-  private sleep(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+  private sleep(ms: number) {
+    return new Promise((r) => setTimeout(r, ms))
+  }
   private fb(token: string, cookie?: string, version = 'v23.0', timeoutMs = 20_000) {
     return createFbGraphClient({ token, cookie, version, timeoutMs })
   }
@@ -100,19 +102,12 @@ export class FacebookAdsUpdateService {
     return null
   }
 
-  private async getAdContextByAdIdSafe(
-    adId: string,
-    userLookup: { userId?: string | null; email?: string | null }
-  ) {
+  private async getAdContextByAdIdSafe(adId: string, userLookup: { userId?: string | null; email?: string | null }) {
     const toData = async <T>(p: Promise<any>): Promise<T> => (await p).data as T
 
     const userData =
-      (userLookup.userId
-        ? await this.userRepo.findOne({ where: { id: userLookup.userId } })
-        : null) ||
-      (userLookup.email
-        ? await this.userRepo.findOne({ where: { email: userLookup.email } })
-        : null)
+      (userLookup.userId ? await this.userRepo.findOne({ where: { id: userLookup.userId } }) : null) ||
+      (userLookup.email ? await this.userRepo.findOne({ where: { email: userLookup.email } }) : null)
 
     if (!userData) throw new BadRequestException('Không tìm thấy user cho adInsight.')
     const { accessTokenUser, cookie, accountAdsId, idPage } = userData
@@ -126,7 +121,7 @@ export class FacebookAdsUpdateService {
         params: {
           fields: 'id,name,status,adset_id,campaign_id,creative{effective_object_story_id,object_story_spec}',
         },
-      })
+      }),
     )
     if (!ad?.adset_id || !ad?.campaign_id) {
       throw new BadRequestException(`Ad thiếu adset_id/campaign_id (adId=${adId}).`)
@@ -137,12 +132,12 @@ export class FacebookAdsUpdateService {
       toData<any>(
         fb.get(`/${ad.adset_id}`, {
           params: { fields: 'id,name,status,targeting,daily_budget,lifetime_budget,optimization_goal,billing_event' },
-        })
+        }),
       ),
       toData<any>(
         fb.get(`/${ad.campaign_id}`, {
           params: { fields: 'id,name,status,objective' },
-        })
+        }),
       ),
     ])
 
@@ -225,7 +220,9 @@ export class FacebookAdsUpdateService {
       }
     }
 
-    await fb.post(`/${adsetId}`, qs.stringify(payload), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
+    await fb.post(`/${adsetId}`, qs.stringify(payload), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    })
 
     if (wasActive) {
       await fb.post(`/${adsetId}`, qs.stringify({ status: 'ACTIVE' }), {
@@ -264,7 +261,7 @@ export class FacebookAdsUpdateService {
             link_data: { image_hash: v.imageHash, message: v.primaryText, call_to_action: { type: 'MESSAGE_PAGE' } },
           }),
         }),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       )
 
       const ad = await fb.post(
@@ -275,9 +272,13 @@ export class FacebookAdsUpdateService {
           creative: JSON.stringify({ creative_id: (creative as any).data?.id || (creative as any)?.id }),
           status: 'ACTIVE',
         }),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       )
-      created.push({ ad_id: (ad as any).data?.id || (ad as any)?.id, creative_id: (creative as any).data?.id || (creative as any)?.id, name: v.name })
+      created.push({
+        ad_id: (ad as any).data?.id || (ad as any)?.id,
+        creative_id: (creative as any).data?.id || (creative as any)?.id,
+        name: v.name,
+      })
     }
     return created
   }
@@ -300,16 +301,18 @@ export class FacebookAdsUpdateService {
       if (!plan) {
         if (!adInsight.adId) throw new BadRequestException('AdInsight thiếu adId.')
 
-        const ctx = await this.getAdContextByAdIdSafe(
-          adInsight.adId,
-          { userId: adInsight.userId || null, email: adInsight.createdByEmail || null }
-        )
+        const ctx = await this.getAdContextByAdIdSafe(adInsight.adId, {
+          userId: adInsight.userId || null,
+          email: adInsight.createdByEmail || null,
+        })
         const currentTargeting = ctx?.adset?.targeting || {}
         const campaignObjective = ctx?.campaign?.objective
 
         // dựng report tối thiểu
         let report: any
-        try { if (adInsight.recommendation?.trim().startsWith('{')) report = JSON.parse(adInsight.recommendation) } catch {}
+        try {
+          if (adInsight.recommendation?.trim().startsWith('{')) report = JSON.parse(adInsight.recommendation)
+        } catch {}
         if (!report) {
           report = {
             impressions: adInsight.impressions,
@@ -318,7 +321,7 @@ export class FacebookAdsUpdateService {
             cpmVnd: adInsight.cpmVnd,
             clicks: adInsight.clicks,
             spendVnd: adInsight.spendVnd,
-            raw: { recommendation: adInsight.recommendation, htmlReport: adInsight.htmlReport }
+            raw: { recommendation: adInsight.recommendation, htmlReport: adInsight.htmlReport },
           }
         }
 
@@ -335,10 +338,10 @@ export class FacebookAdsUpdateService {
 
       try {
         if (!adInsight.adId) throw new BadRequestException('AdInsight thiếu adId.')
-        const { fb, ad, adset, adAccountId, pageId } = await this.getAdContextByAdIdSafe(
-          adInsight.adId,
-          { userId: adInsight.userId || null, email: adInsight.createdByEmail || null }
-        )
+        const { fb, ad, adset, adAccountId, pageId } = await this.getAdContextByAdIdSafe(adInsight.adId, {
+          userId: adInsight.userId || null,
+          email: adInsight.createdByEmail || null,
+        })
 
         const newTargeting = this.mergeTargeting(adset?.targeting || {}, plan)
         const updatePayload = await this.updateAdsetTargetingAndBudget({

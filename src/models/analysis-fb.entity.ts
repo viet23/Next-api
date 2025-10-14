@@ -20,5 +20,4 @@ export class AnalysisFb extends BaseEntity {
 
   @Column({ name: 'targeting', type: 'jsonb', nullable: true })
   targeting: any
-
 }
