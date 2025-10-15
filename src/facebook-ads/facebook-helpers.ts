@@ -4,7 +4,7 @@
  * Reusable functions for mapping goals, placements, validations, radius normalization, etc.
  */
 
-import { MediaKind } from './types/ads.type'
+import { MediaKind, TargetingSpec } from './types/ads.type'
 
 export type GenderInput = 'all' | 'male' | 'female'
 
@@ -261,4 +261,59 @@ export function normalizeRadiusToMiles(value?: number, unit?: 'm' | 'km' | 'mi')
   }
 
   return Math.max(1, Math.min(50, Number(miles.toFixed(2))))
+}
+
+/**
+ * Tạo một entry cho flexible_spec từ chunk { interests?, behaviors? }.
+ * Trả về null nếu không có gì để thêm.
+ */
+export function createFlexEntry(chunk: { interests?: any[]; behaviors?: any[] }) {
+  const entry: Record<string, any> = {}
+  if (Array.isArray(chunk.interests) && chunk.interests.length) entry.interests = [...chunk.interests]
+  if (Array.isArray(chunk.behaviors) && chunk.behaviors.length) entry.behaviors = [...chunk.behaviors]
+  return Object.keys(entry).length ? entry : null
+}
+
+/**
+ * Normalize để dùng khi tạo targeting cho API:
+ * - Gom interests/behaviors vào flexible_spec nếu tồn tại
+ * - Không mutate input, trả về object mới
+ */
+export function normalizeTargetingForCreation(t?: TargetingSpec): TargetingSpec {
+  const inSpec: TargetingSpec = t ? { ...t } : {}
+  // copy existing flexible_spec (immutably)
+  const existingFlex: any[] = Array.isArray(inSpec.flexible_spec) ? [...inSpec.flexible_spec] : []
+
+  // tạo entry từ interests/behaviors (nếu có)
+  const entry = createFlexEntry({ interests: inSpec.interests, behaviors: inSpec.behaviors })
+  if (entry) {
+    existingFlex.push(entry)
+    // remove legacy props
+    delete inSpec.interests
+    delete inSpec.behaviors
+  }
+
+  if (existingFlex.length) inSpec.flexible_spec = existingFlex
+  else delete inSpec.flexible_spec
+
+  return inSpec
+}
+
+/**
+ * Merge một chunk {interests?, behaviors?} vào flexible_spec của targeting.
+ * Trả về object mới (không mutate input).
+ */
+export function mergeFlex(t?: TargetingSpec, chunk?: { interests?: any[]; behaviors?: any[] }) {
+  const base: TargetingSpec = t ? { ...t } : {}
+  const flex: any[] = Array.isArray(base.flexible_spec) ? [...base.flexible_spec] : []
+
+  if (chunk) {
+    const entry = createFlexEntry(chunk)
+    if (entry) flex.push(entry)
+  }
+
+  if (flex.length) base.flexible_spec = flex
+  else delete base.flexible_spec
+
+  return base
 }

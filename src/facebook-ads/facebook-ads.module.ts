@@ -14,6 +14,7 @@ import { AiPlannerService } from './ai-planner.service'
 import { TargetingSearchService } from './targeting-search.service'
 import { SetStatusService } from './set-status.service'
 import { FacebookCampaign } from '@models/facebook_campaign.entity'
+import { FacebookAdsInternalService } from './facebook-ads-internal.service'
 
 @Module({
   imports: [
@@ -22,8 +23,8 @@ import { FacebookCampaign } from '@models/facebook_campaign.entity'
     CqrsModule,
     FacebookPostModule,
   ],
-  providers: [FacebookAdsService, AiPlannerService, FacebookAdsUpdateService, TargetingSearchService, SetStatusService],
+  providers: [FacebookAdsService, AiPlannerService, FacebookAdsUpdateService, TargetingSearchService, SetStatusService ,FacebookAdsInternalService],
   controllers: [FacebookAdsController],
-  exports: [FacebookAdsService],
+  exports: [FacebookAdsService , FacebookAdsInternalService],
 })
 export class FacebookModule {}

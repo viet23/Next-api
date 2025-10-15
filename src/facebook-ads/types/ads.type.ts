@@ -67,3 +67,22 @@ export type ListOpts = {
   rankBy?: 'roas' | 'cpl' | 'ctr'
   datePreset?: string // 'last_7d', 'last_30d', 'today'
 }
+
+export type AdItem =
+  | { kind: 'ENGAGEMENT'; postId: string; caption?: string; urlPost?: string }
+  | { kind: 'MESSAGE'; imageUrl?: string; message?: string; postId?: string; urlPost?: string }
+  | { kind: 'TRAFFIC'; imageUrl?: string; message?: string; urlPost?: string }
+
+export const campaignFields = [
+        'campaign_id',
+        'campaign_name',
+        'date_start',
+        'date_stop',
+        'spend',
+        'impressions',
+        'clicks',
+        'ctr',
+        'actions',
+        'action_values',
+        'purchase_roas',
+      ];

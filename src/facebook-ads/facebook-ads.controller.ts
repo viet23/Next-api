@@ -30,6 +30,7 @@ import { UpdateAdStatusDto } from './dto/update-ad-status.dto'
 import { User } from '@models/user.entity'
 import { SetStatusService } from './set-status.service'
 import { FacebookPostIInternalService } from 'src/facebook-post/facebook-post-internal.service'
+import { FacebookAdsInternalService } from './facebook-ads-internal.service'
 
 @ApiTags('facebook-ads')
 @Controller('facebook-ads')
@@ -41,13 +42,29 @@ export class FacebookAdsController {
     private readonly targetingSearch: TargetingSearchService,
     private readonly setStatus: SetStatusService,
     private readonly internalService: FacebookPostIInternalService,
+    private readonly fbAdsInternalService: FacebookAdsInternalService,
 
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) {}
+  ) { }
 
   @Post('create')
   @UseGuards(JwtAuthGuard)
-  createAd(@Body() dto: CreateFacebookAdDto, @Authen() user: User) {
+  async createAd(@Body() dto: CreateFacebookAdDto, @Authen() user: User) {
+    if (!user?.email) throw new BadRequestException('Không xác định được email người dùng từ token.')
+    console.log('fetchFromGraph user:', user)
+    if (!user?.email) {
+      throw new BadRequestException('Không xác định được email người dùng từ token.')
+    }
+    const userData = await this.userRepo.findOne({ where: { email: user.email } })
+    if (!userData) {
+      throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`)
+    }
+
+    if (userData.isInternal) {
+      console.log('++++++++++++++++++User is internal, using internal service to create ad');
+      
+      return this.fbAdsInternalService.createFacebookAd(dto, user)
+    }
     return this.fbService.createFacebookAd(dto, user)
   }
 
