@@ -14,7 +14,10 @@ import crypto from 'node:crypto'
 
 /** ========= Helpers & constants ========= */
 const isServer = typeof window === 'undefined'
-const toNum = (v: any, def = 0) => { const n = Number(v); return Number.isFinite(n) ? n : def }
+const toNum = (v: any, def = 0) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : def
+}
 const vnd = (v: any) => toNum(v).toLocaleString('vi-VN', { maximumFractionDigits: 0 })
 const pct = (v: any, d = 2) => toNum(v).toFixed(d)
 const int = (v: any) => Math.round(toNum(v)).toLocaleString('vi-VN')
@@ -29,10 +32,11 @@ type AIReturn = {
 type TimeIncrement = 'all_days' | 'monthly' | number
 const normalizeTimeIncrement = (i: any, fb: TimeIncrement = 'all_days'): TimeIncrement => {
   if (i === 'all_days' || i === 'monthly') return i
-  const n = Number(i); return Number.isInteger(n) && n > 0 ? n : fb
+  const n = Number(i)
+  return Number.isInteger(n) && n > 0 ? n : fb
 }
 const normalizeActId = (id?: string) => (id ? `act_${String(id).replace(/^act_/, '')}` : undefined)
-const sleep = (ms: number) => new Promise(res => setTimeout(res, ms))
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms))
 const buildAppSecretProof = (token?: string) => {
   const secret = process.env.FB_APP_SECRET
   if (!token || !secret) return undefined
@@ -41,24 +45,48 @@ const buildAppSecretProof = (token?: string) => {
 
 const INSIGHTS_FIELDS = [
   'ad_id',
-  'date_start', 'date_stop',
-  'impressions', 'reach', 'frequency',
-  'spend', 'cpm', 'cpc', 'ctr', 'clicks', 'inline_link_clicks',
-  'actions', 'action_values', 'video_avg_time_watched_actions',
+  'date_start',
+  'date_stop',
+  'impressions',
+  'reach',
+  'frequency',
+  'spend',
+  'cpm',
+  'cpc',
+  'ctr',
+  'clicks',
+  'inline_link_clicks',
+  'actions',
+  'action_values',
+  'video_avg_time_watched_actions',
   'purchase_roas',
   'cost_per_action_type',
 ].join(',')
 
 /** ===== Internal (batch) helpers ===== */
 async function createInsightsJob(params: {
-  client: AxiosInstance, adAccountId: string, token: string, appsecret_proof?: string,
-  timeRange?: { since: string; until: string }, datePreset?: string,
-  fields: string[], timeIncrement?: TimeIncrement,
-  actionReportTime?: 'impression' | 'conversion', useAccountAttribution?: boolean
+  client: AxiosInstance
+  adAccountId: string
+  token: string
+  appsecret_proof?: string
+  timeRange?: { since: string; until: string }
+  datePreset?: string
+  fields: string[]
+  timeIncrement?: TimeIncrement
+  actionReportTime?: 'impression' | 'conversion'
+  useAccountAttribution?: boolean
 }) {
   const {
-    client, adAccountId, token, appsecret_proof, timeRange, datePreset, fields,
-    timeIncrement = 'all_days', actionReportTime = 'conversion', useAccountAttribution = true,
+    client,
+    adAccountId,
+    token,
+    appsecret_proof,
+    timeRange,
+    datePreset,
+    fields,
+    timeIncrement = 'all_days',
+    actionReportTime = 'conversion',
+    useAccountAttribution = true,
   } = params
   const q: any = {
     access_token: token,
@@ -76,11 +104,22 @@ async function createInsightsJob(params: {
   const { data } = await client.post(`/${adAccountId}/insights`, null, { params: q })
   return data?.report_run_id as string | undefined
 }
-async function waitForJob(client: AxiosInstance, runId: string, token: string, appsecret_proof?: string, logger?: Logger) {
-  const start = Date.now(); let attempt = 0
+async function waitForJob(
+  client: AxiosInstance,
+  runId: string,
+  token: string,
+  appsecret_proof?: string,
+  logger?: Logger,
+) {
+  const start = Date.now()
+  let attempt = 0
   while (true) {
     const res = await client.get(`/${runId}`, {
-      params: { access_token: token, fields: 'async_status,async_percent_completion', ...(appsecret_proof ? { appsecret_proof } : {}) },
+      params: {
+        access_token: token,
+        fields: 'async_status,async_percent_completion',
+        ...(appsecret_proof ? { appsecret_proof } : {}),
+      },
       timeout: 20000,
     })
     const st = res?.data?.async_status
@@ -90,7 +129,8 @@ async function waitForJob(client: AxiosInstance, runId: string, token: string, a
     const ra = Number(res?.headers?.['retry-after'])
     const delay = Number.isFinite(ra) && ra > 0 ? ra * 1000 : Math.max(900 * Math.pow(1.3, attempt), 800)
     logger?.log?.(`Waiting insights job... status=${st} delay=${delay}ms`)
-    await sleep(delay); attempt++
+    await sleep(delay)
+    attempt++
   }
 }
 async function fetchInsightsResultPaged(client: AxiosInstance, runId: string, token: string, appsecret_proof?: string) {
@@ -108,13 +148,26 @@ async function fetchInsightsResultPaged(client: AxiosInstance, runId: string, to
   return all
 }
 async function fetchInsightsSyncViaAccount(params: {
-  client: AxiosInstance, adAccountId: string, token: string, appsecret_proof?: string,
-  datePreset?: string, timeRange?: { since: string; until: string }, timeIncrement?: TimeIncrement,
-  actionReportTime?: 'impression' | 'conversion', useAccountAttribution?: boolean
+  client: AxiosInstance
+  adAccountId: string
+  token: string
+  appsecret_proof?: string
+  datePreset?: string
+  timeRange?: { since: string; until: string }
+  timeIncrement?: TimeIncrement
+  actionReportTime?: 'impression' | 'conversion'
+  useAccountAttribution?: boolean
 }) {
   const {
-    client, adAccountId, token, appsecret_proof, datePreset, timeRange,
-    timeIncrement = 'all_days', actionReportTime = 'conversion', useAccountAttribution = true,
+    client,
+    adAccountId,
+    token,
+    appsecret_proof,
+    datePreset,
+    timeRange,
+    timeIncrement = 'all_days',
+    actionReportTime = 'conversion',
+    useAccountAttribution = true,
   } = params
   const out: any[] = []
   let url = `/${adAccountId}/insights`
@@ -148,7 +201,7 @@ export class EmailService {
     @InjectRepository(CreditTransaction) private readonly creditRepo: Repository<CreditTransaction>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(FacebookAd) private readonly facebookAdRepo: Repository<FacebookAd>,
-  ) { }
+  ) {}
 
   private transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -231,32 +284,63 @@ export class EmailService {
   private summarizeTargeting(t: any) {
     if (!t) return { summary: 'Không có dữ liệu targeting.', lines: [], raw: null }
     const genderMap: Record<number, string> = { 1: 'Nam', 2: 'Nữ' }
-    const genders = Array.isArray(t.genders) && t.genders.length ? t.genders.map((g: number) => genderMap[g] ?? String(g)).join(', ') : 'Không giới hạn'
+    const genders =
+      Array.isArray(t.genders) && t.genders.length
+        ? t.genders.map((g: number) => genderMap[g] ?? String(g)).join(', ')
+        : 'Không giới hạn'
     const age = t.age_min || t.age_max ? `${t.age_min || 13}–${t.age_max || 65}+` : 'Không giới hạn'
     const loc = t.geo_locations || {}
     const customLocs: string[] = Array.isArray(loc.custom_locations)
       ? loc.custom_locations.slice(0, 3).map((c: any) => {
-        const lat = Number(c.latitude), lng = Number(c.longitude), r = Number(c.radius)
-        const unit = String(c.distance_unit || 'mile')
-        const radiusKm = Number.isFinite(r) ? (unit === 'mile' ? r * 1.609 : r) : NaN
-        return `${Number.isFinite(lat) ? lat.toFixed(4) : '?'},${Number.isFinite(lng) ? lng.toFixed(4) : '?'}${Number.isFinite(radiusKm) ? ` (~${radiusKm.toFixed(1)} km)` : ''}`
-      })
+          const lat = Number(c.latitude),
+            lng = Number(c.longitude),
+            r = Number(c.radius)
+          const unit = String(c.distance_unit || 'mile')
+          const radiusKm = Number.isFinite(r) ? (unit === 'mile' ? r * 1.609 : r) : NaN
+          return `${Number.isFinite(lat) ? lat.toFixed(4) : '?'},${Number.isFinite(lng) ? lng.toFixed(4) : '?'}${Number.isFinite(radiusKm) ? ` (~${radiusKm.toFixed(1)} km)` : ''}`
+        })
       : []
     const countries = Array.isArray(loc.countries) && loc.countries.length ? loc.countries.join(', ') : null
-    const cities = Array.isArray(loc.cities) && loc.cities.length
-      ? loc.cities.slice(0, 3).map((c: any) => `${c.name || c.key}${c.distance_unit && c.radius ? ` (+${c.radius}${c.distance_unit})` : ''}`).join(' • ')
-      : null
-    const regions = Array.isArray(loc.regions) && loc.regions.length ? loc.regions.map((r: any) => r.name || r.key).slice(0, 3).join(' • ') : null
-    const locationStr = (customLocs.length && customLocs.join(' • ')) || cities || [countries, regions].filter(Boolean).join(' | ') || 'Không giới hạn'
-    const interestsFromFlex: string[] = (Array.isArray(t.flexible_spec) ? t.flexible_spec : []).flatMap((s: any) => Array.isArray(s.interests) ? s.interests.map((i: any) => i.name) : [])
+    const cities =
+      Array.isArray(loc.cities) && loc.cities.length
+        ? loc.cities
+            .slice(0, 3)
+            .map(
+              (c: any) => `${c.name || c.key}${c.distance_unit && c.radius ? ` (+${c.radius}${c.distance_unit})` : ''}`,
+            )
+            .join(' • ')
+        : null
+    const regions =
+      Array.isArray(loc.regions) && loc.regions.length
+        ? loc.regions
+            .map((r: any) => r.name || r.key)
+            .slice(0, 3)
+            .join(' • ')
+        : null
+    const locationStr =
+      (customLocs.length && customLocs.join(' • ')) ||
+      cities ||
+      [countries, regions].filter(Boolean).join(' | ') ||
+      'Không giới hạn'
+    const interestsFromFlex: string[] = (Array.isArray(t.flexible_spec) ? t.flexible_spec : []).flatMap((s: any) =>
+      Array.isArray(s.interests) ? s.interests.map((i: any) => i.name) : [],
+    )
     const interestsRoot: string[] = Array.isArray(t.interests) ? t.interests.map((i: any) => i?.name || i) : []
     const interests = [...interestsFromFlex, ...interestsRoot]
-    const behaviors: string[] = (Array.isArray(t.flexible_spec) ? t.flexible_spec : []).flatMap((s: any) => Array.isArray(s.behaviors) ? s.behaviors.map((b: any) => b.name) : [])
-    const exclusions: string[] = Array.isArray(t.exclusions?.interests) ? t.exclusions.interests.map((i: any) => i.name) : []
+    const behaviors: string[] = (Array.isArray(t.flexible_spec) ? t.flexible_spec : []).flatMap((s: any) =>
+      Array.isArray(s.behaviors) ? s.behaviors.map((b: any) => b.name) : [],
+    )
+    const exclusions: string[] = Array.isArray(t.exclusions?.interests)
+      ? t.exclusions.interests.map((i: any) => i.name)
+      : []
     const placementDetail = (() => {
       const platforms = Array.isArray(t.publisher_platforms) ? t.publisher_platforms.join(', ') : ''
-      const pos = (Array.isArray(t.instagram_positions) && t.instagram_positions.length ? t.instagram_positions
-        : Array.isArray(t.facebook_positions) && t.facebook_positions.length ? t.facebook_positions : t.positions || []) || []
+      const pos =
+        (Array.isArray(t.instagram_positions) && t.instagram_positions.length
+          ? t.instagram_positions
+          : Array.isArray(t.facebook_positions) && t.facebook_positions.length
+            ? t.facebook_positions
+            : t.positions || []) || []
       return pos.length ? `${platforms || '—'} / ${pos.join(', ')}` : platforms || 'Tự động'
     })()
     const lines: string[] = [
@@ -270,15 +354,21 @@ export class EmailService {
     ].filter(Boolean)
     return {
       summary: `Độ tuổi ${age}; ${genders.toLowerCase()}; vị trí ${locationStr.toLowerCase()}; ${interests.length ? `có ${interests.length} interest` : 'không set interest'}, ${behaviors.length ? `${behaviors.length} behavior` : 'không set behavior'}.`,
-      lines, raw: t,
+      lines,
+      raw: t,
     }
   }
 
   private renderEvalTable(r: AIReturn | null) {
-    console.log(`AI đánh giá:==================================================`, r);
+    console.log(`AI đánh giá:==================================================`, r)
 
     if (!r?.danh_gia?.length) return '<p>Không có đánh giá từ AI.</p>'
-    const rows = r.danh_gia.map(d => `<tr><td style="padding:8px;border:1px solid #eee;">${d.chi_so}</td><td style="padding:8px;border:1px solid #eee;">${d.nhan_xet}</td></tr>`).join('')
+    const rows = r.danh_gia
+      .map(
+        (d) =>
+          `<tr><td style="padding:8px;border:1px solid #eee;">${d.chi_so}</td><td style="padding:8px;border:1px solid #eee;">${d.nhan_xet}</td></tr>`,
+      )
+      .join('')
     return `
       <table style="border-collapse:collapse;width:100%;margin-top:6px;">
         <thead>
@@ -355,15 +445,29 @@ export class EmailService {
         if (token && adAccountId) {
           try {
             const runId = await createInsightsJob({
-              client, adAccountId, token, appsecret_proof,
-              timeRange, datePreset, fields: INSIGHTS_FIELDS.split(','),
-              timeIncrement, actionReportTime, useAccountAttribution,
+              client,
+              adAccountId,
+              token,
+              appsecret_proof,
+              timeRange,
+              datePreset,
+              fields: INSIGHTS_FIELDS.split(','),
+              timeIncrement,
+              actionReportTime,
+              useAccountAttribution,
             })
             let rows: any[] = []
             if (!runId) {
               rows = await fetchInsightsSyncViaAccount({
-                client, adAccountId, token, appsecret_proof,
-                datePreset, timeRange, timeIncrement, actionReportTime, useAccountAttribution,
+                client,
+                adAccountId,
+                token,
+                appsecret_proof,
+                datePreset,
+                timeRange,
+                timeIncrement,
+                actionReportTime,
+                useAccountAttribution,
               })
             } else {
               await waitForJob(client, runId, token, appsecret_proof, this.logger)
@@ -374,7 +478,9 @@ export class EmailService {
               if (aid) insightsByAdId.set(aid, r)
             }
           } catch (err: any) {
-            this.logger.error(`❌ Internal batch insights lỗi: ${err?.response?.status} ${JSON.stringify(err?.response?.data)}`)
+            this.logger.error(
+              `❌ Internal batch insights lỗi: ${err?.response?.status} ${JSON.stringify(err?.response?.data)}`,
+            )
           }
         } else {
           this.logger.warn(`⚠️ Owner thiếu token hoặc adAccountId → bỏ qua batch.`)
@@ -418,7 +524,10 @@ export class EmailService {
             this.logger.warn(`⚠️ Không lấy được targeting cho ad ${adId}: ${tErr.message}`)
           }
 
-          if (!fb) { this.logger.warn(`⚠️ Không có insights cho ad ${adId}`); continue }
+          if (!fb) {
+            this.logger.warn(`⚠️ Không có insights cho ad ${adId}`)
+            continue
+          }
 
           // Chuẩn dữ liệu
           const impressions = toNum(fb.impressions)
@@ -464,7 +573,9 @@ export class EmailService {
           const messageCount = messageActions.reduce((s: number, a: any) => s + toNum(a.value), 0)
           let costPerMessageFromApi: number | null = null
           if (Array.isArray(fb?.cost_per_action_type)) {
-            const found = fb.cost_per_action_type.find((c: any) => /message|messaging|conversation|messenger/i.test(String(c?.action_type || '')))
+            const found = fb.cost_per_action_type.find((c: any) =>
+              /message|messaging|conversation|messenger/i.test(String(c?.action_type || '')),
+            )
             if (found) costPerMessageFromApi = toNum(found.value)
           }
           const costPerMessageComputed = messageCount > 0 ? spend / messageCount : null
@@ -490,27 +601,54 @@ RAW:
 ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
 `
           const callOpenAI = async () =>
-            axios.post('https://api.openai.com/v1/chat/completions', {
-              model: 'gpt-4',
-              messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-              temperature: 0.2,
-              max_tokens: 700,
-              // @ts-ignore
-              response_format: { type: 'json_object' },
-            }, { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' }, timeout: 30000 })
+            axios.post(
+              'https://api.openai.com/v1/chat/completions',
+              {
+                model: 'gpt-4',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt },
+                ],
+                temperature: 0.2,
+                max_tokens: 700,
+                // @ts-ignore
+                response_format: { type: 'json_object' },
+              },
+              {
+                headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+                timeout: 30000,
+              },
+            )
 
           let aiJson: AIReturn | null = null
           try {
             let openaiRes
-            try { openaiRes = await callOpenAI() }
-            catch {
-              openaiRes = await axios.post('https://api.openai.com/v1/chat/completions', {
-                model: 'gpt-4', messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-                temperature: 0.2, max_tokens: 700,
-              }, { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' }, timeout: 30000 })
+            try {
+              openaiRes = await callOpenAI()
+            } catch {
+              openaiRes = await axios.post(
+                'https://api.openai.com/v1/chat/completions',
+                {
+                  model: 'gpt-4',
+                  messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
+                  ],
+                  temperature: 0.2,
+                  max_tokens: 700,
+                },
+                {
+                  headers: {
+                    Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                    'Content-Type': 'application/json',
+                  },
+                  timeout: 30000,
+                },
+              )
             }
             const raw = openaiRes?.data?.choices?.[0]?.message?.content ?? '{}'
-            const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
+            const s = raw.indexOf('{'),
+              e = raw.lastIndexOf('}')
             aiJson = JSON.parse(s >= 0 && e >= 0 ? raw.slice(s, e + 1) : '{}')
           } catch (aiErr: any) {
             this.logger.error('⚠️ Lỗi OpenAI:', aiErr?.response?.data || aiErr.message)
@@ -533,8 +671,9 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
   <p><strong>💸 Chi phí:</strong> ${vnd(spend)} VNĐ</p>
   <p><strong>📊 CTR:</strong> ${pct(ctrVal)}% &nbsp;•&nbsp; CPM: ${vnd(cpmVal)} VNĐ &nbsp;•&nbsp; CPC: ${vnd(cpcVal)} VNĐ</p>
 
-  <p><strong>📌 Tổng tương tác:</strong> ${int((Array.isArray(fb?.actions) ? fb.actions : []).reduce((s: number, a: any) => s + toNum(a?.value), 0))
-            }</p>
+  <p><strong>📌 Tổng tương tác:</strong> ${int(
+    (Array.isArray(fb?.actions) ? fb.actions : []).reduce((s: number, a: any) => s + toNum(a?.value), 0),
+  )}</p>
 
   <hr style="margin:16px 0;"/>
   <h4>✉️ Tin nhắn (Messaging)</h4>
@@ -544,10 +683,13 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
   <hr style="margin:16px 0;"/>
   <h4>🎯 Tóm tắt Targeting</h4>
   <p>${this.summarizeTargeting(targeting).summary}</p>
-  <div style="margin-top:8px;">${this.summarizeTargeting(targeting).lines.length
-              ? `<ul>${this.summarizeTargeting(targeting).lines.map((l) => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>`
-              : ''
-            }</div>
+  <div style="margin-top:8px;">${
+    this.summarizeTargeting(targeting).lines.length
+      ? `<ul>${this.summarizeTargeting(targeting)
+          .lines.map((l) => `<li>${l.replace(/^•\\s*/, '')}</li>`)
+          .join('')}</ul>`
+      : ''
+  }</div>
 
   <hr style="margin:16px 0;"/>
   <h4>📈 Đánh giá & Gợi ý tối ưu từ AI</h4>
@@ -586,7 +728,9 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
               cpmVnd: vnd(cpmVal),
               cpcVnd: vnd(cpcVal),
 
-              totalEngagement: String((Array.isArray(fb?.actions) ? fb.actions : []).reduce((s: number, a: any) => s + toNum(a?.value), 0)),
+              totalEngagement: String(
+                (Array.isArray(fb?.actions) ? fb.actions : []).reduce((s: number, a: any) => s + toNum(a?.value), 0),
+              ),
               engagementDetails: JSON.stringify(engagementItems),
               recommendation: recommendationStr,
               htmlReport: String(htmlReport || ''),
@@ -598,7 +742,9 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
           }
         } catch (error: any) {
           const e = error?.response?.data?.error
-          this.logger.error(`❌ Lỗi lấy dữ liệu cho ad ${ad.adId}: ${e?.message || error?.message} (code=${e?.code}, sub=${e?.error_subcode})`)
+          this.logger.error(
+            `❌ Lỗi lấy dữ liệu cho ad ${ad.adId}: ${e?.message || error?.message} (code=${e?.code}, sub=${e?.error_subcode})`,
+          )
         }
       } // for ad
     } // for owner

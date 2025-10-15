@@ -261,7 +261,7 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
           params: {
             fields: INSIGHTS_FIELDS,
             time_range: JSON.stringify({ since: minDate.format('YYYY-MM-DD'), until: maxDate.format('YYYY-MM-DD') }),
-            time_increment: 1,                 // theo ngày
+            time_increment: 1, // theo ngày
             action_report_time: 'conversion',
             use_account_attribution_setting: true,
             ...(appsecret_proof ? { appsecret_proof } : {}),
@@ -344,13 +344,7 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
   }
 
   /** Chuẩn hoá 1 dòng insight/ngày + render + upsert DB (AI giữ nguyên như trước nếu bạn cần bổ sung sau) */
-  private async upsertDailyInsight(args: {
-    ad: FacebookAd
-    adId: string
-    date: string
-    row: any
-    targeting: any
-  }) {
+  private async upsertDailyInsight(args: { ad: FacebookAd; adId: string; date: string; row: any; targeting: any }) {
     const { ad, adId, date, row, targeting } = args
     const dateStart = moment(date).startOf('day')
 
@@ -402,10 +396,18 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
     if (Array.isArray(row?.cost_per_action_type)) {
       const found = row.cost_per_action_type.find(
         (c: any) =>
-          String(c.action_type || '').toLowerCase().includes('message') ||
-          String(c.action_type || '').toLowerCase().includes('messaging') ||
-          String(c.action_type || '').toLowerCase().includes('conversation') ||
-          String(c.action_type || '').toLowerCase().includes('messenger'),
+          String(c.action_type || '')
+            .toLowerCase()
+            .includes('message') ||
+          String(c.action_type || '')
+            .toLowerCase()
+            .includes('messaging') ||
+          String(c.action_type || '')
+            .toLowerCase()
+            .includes('conversation') ||
+          String(c.action_type || '')
+            .toLowerCase()
+            .includes('messenger'),
       )
       if (found) costPerMessageFromApi = toNum(found.value)
     }
@@ -440,7 +442,9 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
       <h4>🎯 Tóm tắt Targeting</h4>
       <p>${targetingSummary.summary}</p>
       <div style="margin-top:8px;">${
-        targetingSummary.lines.length ? `<ul>${targetingSummary.lines.map((l) => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>` : ''
+        targetingSummary.lines.length
+          ? `<ul>${targetingSummary.lines.map((l) => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>`
+          : ''
       }</div>
     `
 

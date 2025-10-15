@@ -11,7 +11,7 @@ import { FacebookCampaign } from '@models/facebook_campaign.entity'
 
 /** ================== Constants & helpers ================== */
 const INSIGHTS_FIELDS = [
-  'ad_id',                // để map insights -> adId
+  'ad_id', // để map insights -> adId
   'date_start',
   'date_stop',
   'impressions',
@@ -65,7 +65,7 @@ function buildZeroRowForAd(adId: string, range?: { since?: string; until?: strin
   return {
     ad_id: adId,
     date_start: range?.since ?? '',
-    date_stop:  range?.until ?? '',
+    date_stop: range?.until ?? '',
     impressions: '0',
     reach: '0',
     frequency: '0',
@@ -144,9 +144,7 @@ async function waitForJob(
     })
 
     const st: string | undefined = res?.data?.async_status
-    const pct: number | undefined = Number(
-      res?.data?.async_percent_completion ?? res?.data?.percent_completion,
-    )
+    const pct: number | undefined = Number(res?.data?.async_percent_completion ?? res?.data?.percent_completion)
 
     if (st === 'Job Completed') {
       logger?.log?.(`Insights job completed (percent=${Number.isFinite(pct) ? pct : 100}%).`)
@@ -252,15 +250,15 @@ async function fetchAllAdsViaAccount(
   adAccountId: string,
   token: string,
   appsecret_proof?: string,
-  opts?: { includeArchived?: boolean }
+  opts?: { includeArchived?: boolean },
 ) {
   const act = normalizeActId(adAccountId)!
   const list: Array<{ id: string; name?: string; effective_status?: string; status?: string }> = []
   let url = `/${act}/ads`
 
   const statuses = opts?.includeArchived
-    ? ['ACTIVE','PAUSED','ARCHIVED','IN_PROCESS','WITH_ISSUES','PENDING_REVIEW','DISAPPROVED']
-    : ['ACTIVE','PAUSED','IN_PROCESS','WITH_ISSUES','PENDING_REVIEW']
+    ? ['ACTIVE', 'PAUSED', 'ARCHIVED', 'IN_PROCESS', 'WITH_ISSUES', 'PENDING_REVIEW', 'DISAPPROVED']
+    : ['ACTIVE', 'PAUSED', 'IN_PROCESS', 'WITH_ISSUES', 'PENDING_REVIEW']
 
   while (url) {
     const res = await client.get(url, {
@@ -307,8 +305,8 @@ async function fetchAllAdStatusesViaAccount(
         typeof r?.status === 'string'
           ? r.status
           : typeof r?.effective_status === 'string'
-          ? r.effective_status
-          : 'PAUSED'
+            ? r.effective_status
+            : 'PAUSED'
       statusMap.set(id, st)
     }
     const next = res?.data?.paging?.next
@@ -450,7 +448,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
           statusByAdId = await fetchAllAdStatusesViaAccount(client, adAccountId, token, appsecret_proof)
         } catch (e: any) {
           this.logger.error(
-            `Fetch statuses via /ads failed: ${e?.response?.status} ${JSON.stringify(e?.response?.data)}`
+            `Fetch statuses via /ads failed: ${e?.response?.status} ${JSON.stringify(e?.response?.data)}`,
           )
           statusByAdId = new Map<string, string>()
         }
@@ -467,7 +465,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
 
       // Map full ads trong account
       const accountAdsMap = new Map<string, { id: string; name?: string; effective_status?: string; status?: string }>(
-        allAdsInAccount.map(a => [String(a.id), a]),
+        allAdsInAccount.map((a) => [String(a.id), a]),
       )
 
       // Gom tập adId đầy đủ: DB (campaign + orphan) ∪ account
@@ -481,14 +479,14 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
         .getMany()
 
       const adIdSet = new Set<string>()
-      for (const c of campaigns) for (const a of (c.ads || [])) if (a?.adId) adIdSet.add(String(a.adId))
+      for (const c of campaigns) for (const a of c.ads || []) if (a?.adId) adIdSet.add(String(a.adId))
       for (const a of orphanAds) if (a?.adId) adIdSet.add(String(a.adId))
       for (const a of allAdsInAccount) if (a?.id) adIdSet.add(String(a.id))
       const allAdIds = Array.from(adIdSet)
 
       const findDbAd = (adId: string) =>
-        campaigns.flatMap(c => c.ads || []).find(a => String(a.adId) === adId) ||
-        orphanAds.find(a => String(a.adId) === adId)
+        campaigns.flatMap((c) => c.ads || []).find((a) => String(a.adId) === adId) ||
+        orphanAds.find((a) => String(a.adId) === adId)
 
       const buildAdViewFromId = (adId: string) => {
         const dbAd = findDbAd(adId)
@@ -515,11 +513,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
         const costPerMessageNumber = messages > 0 ? spendNumber / messages : 0
         const costPerClickNumber = clicks > 0 ? spendNumber / clicks : 0
 
-        const status =
-          statusByAdId.get(adId) ||
-          fromAccount?.effective_status ||
-          fromAccount?.status ||
-          'PAUSED'
+        const status = statusByAdId.get(adId) || fromAccount?.effective_status || fromAccount?.status || 'PAUSED'
 
         return {
           adId,
@@ -548,7 +542,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
       const dataFromCampaigns = await Promise.all(
         campaigns.map(async (camp) => {
           const ads = (camp.ads || [])
-            .map(a => String(a.adId))
+            .map((a) => String(a.adId))
             .filter(Boolean)
             .map(buildAdViewFromId)
 
@@ -595,7 +589,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
       // 2) Orphan (trong DB)
       let syntheticCampaign: any = null
       if (orphanAds && orphanAds.length) {
-        const ads = orphanAds.map(a => buildAdViewFromId(String(a.adId)))
+        const ads = orphanAds.map((a) => buildAdViewFromId(String(a.adId)))
         const summary = ads.reduce(
           (acc, a) => {
             acc.impressions += toNumber(a.data.impressions)
@@ -640,12 +634,14 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
 
       // 3) Thêm một campaign tổng “All Ads (Account)” để chắc chắn không bỏ sót ad nào chưa có trong DB
       const accountOnlyAds = allAdIds
-        .map(id => ({ id, inDb:
-          campaigns.flatMap(c=>c.ads||[]).some(a=>String(a.adId)===id) ||
-          orphanAds.some(a=>String(a.adId)===id)
+        .map((id) => ({
+          id,
+          inDb:
+            campaigns.flatMap((c) => c.ads || []).some((a) => String(a.adId) === id) ||
+            orphanAds.some((a) => String(a.adId) === id),
         }))
-        .filter(x => !x.inDb)
-        .map(x => buildAdViewFromId(x.id))
+        .filter((x) => !x.inDb)
+        .map((x) => buildAdViewFromId(x.id))
 
       let accountAllCampaign: any = null
       if (accountOnlyAds.length) {
@@ -734,7 +730,7 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
               fields: INSIGHTS_FIELDS,
               date_preset: datePreset,
               ...(timeRange ? { time_range: JSON.stringify(timeRange) } : {}),
-              time_increment: timeIncrement,                  // khớp lifetime
+              time_increment: timeIncrement, // khớp lifetime
               action_report_time: actionReportTime,
               use_account_attribution_setting: useAccountAttribution,
               ...(appsecret_proof_external ? { appsecret_proof: appsecret_proof_external } : {}),

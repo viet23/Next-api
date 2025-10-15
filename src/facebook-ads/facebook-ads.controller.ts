@@ -45,7 +45,7 @@ export class FacebookAdsController {
     private readonly fbAdsInternalService: FacebookAdsInternalService,
 
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) { }
+  ) {}
 
   @Post('create')
   @UseGuards(JwtAuthGuard)
@@ -61,8 +61,8 @@ export class FacebookAdsController {
     }
 
     if (userData.isInternal) {
-      console.log('++++++++++++++++++User is internal, using internal service to create ad');
-      
+      console.log('++++++++++++++++++User is internal, using internal service to create ad')
+
       return this.fbAdsInternalService.createFacebookAd(dto, user)
     }
     return this.fbService.createFacebookAd(dto, user)

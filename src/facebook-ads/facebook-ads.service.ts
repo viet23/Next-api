@@ -10,15 +10,7 @@ import FormData from 'form-data'
 import crypto from 'node:crypto'
 import { FacebookCampaign } from '@models/facebook_campaign.entity'
 import moment from 'moment-timezone'
-import {
-  AdItem,
-  AnyDto,
-  campaignFields,
-  GeoLocationsInput,
-  ListOpts,
-  MediaKind,
-  TargetingSpec,
-} from './types/ads.type'
+import { AdItem, AnyDto, campaignFields, GeoLocationsInput, ListOpts, MediaKind, TargetingSpec } from './types/ads.type'
 import {
   getPerfGoalSequenceForEngagement,
   getPerfGoalSequenceForLeads,
@@ -334,11 +326,9 @@ export class FacebookAdsService {
     }
 
     // --- AUDIENCE SAFETY CHECK (đã sửa để tôn trọng tuổi người dùng) ---
-    let totalInterests =
-      targeting.flexible_spec?.map((fs) => fs.interests?.length || 0).reduce((a, b) => a + b, 0) || 0
+    let totalInterests = targeting.flexible_spec?.map((fs) => fs.interests?.length || 0).reduce((a, b) => a + b, 0) || 0
 
-    const userFixedAge =
-      typeof targeting.age_min === 'number' || typeof targeting.age_max === 'number'
+    const userFixedAge = typeof targeting.age_min === 'number' || typeof targeting.age_max === 'number'
 
     if (userFixedAge) {
       this.logger.warn('[FacebookAdsService] User fixed age range → disable Advantage Audience')
@@ -944,8 +934,7 @@ export class FacebookAdsService {
 
       // Advantage flag thiếu: tôn trọng tuổi user
       if (sub === 1870227 || /Advantage Audience Flag Required/i.test(msg)) {
-        const userFixedAge =
-          typeof currentPayload.age_min === 'number' || typeof currentPayload.age_max === 'number'
+        const userFixedAge = typeof currentPayload.age_min === 'number' || typeof currentPayload.age_max === 'number'
 
         if (userFixedAge) {
           this.logger.warn('⚠️ Advantage flag required but user fixed age → retry with advantage_audience=0')

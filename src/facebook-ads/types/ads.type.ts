@@ -74,15 +74,15 @@ export type AdItem =
   | { kind: 'TRAFFIC'; imageUrl?: string; message?: string; urlPost?: string }
 
 export const campaignFields = [
-        'campaign_id',
-        'campaign_name',
-        'date_start',
-        'date_stop',
-        'spend',
-        'impressions',
-        'clicks',
-        'ctr',
-        'actions',
-        'action_values',
-        'purchase_roas',
-      ];
+  'campaign_id',
+  'campaign_name',
+  'date_start',
+  'date_stop',
+  'spend',
+  'impressions',
+  'clicks',
+  'ctr',
+  'actions',
+  'action_values',
+  'purchase_roas',
+]

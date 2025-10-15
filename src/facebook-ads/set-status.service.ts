@@ -156,7 +156,9 @@ export class SetStatusService {
           try {
             await fn(adId, fb)
             const v = await this.verifyStatus(adId, fb)
-            const ok = isActive ? v.status === 'ACTIVE' || v.effective_status === 'ACTIVE' : v.status === 'PAUSED' || v.effective_status === 'PAUSED'
+            const ok = isActive
+              ? v.status === 'ACTIVE' || v.effective_status === 'ACTIVE'
+              : v.status === 'PAUSED' || v.effective_status === 'PAUSED'
             if (!ok) {
               throw new Error(
                 `Xác minh thất bại: status=${v.status || '—'}, effective_status=${v.effective_status || '—'}`,

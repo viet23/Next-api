@@ -63,7 +63,7 @@ function buildZeroRowForAd(adId: string, range?: { since?: string; until?: strin
   return {
     ad_id: adId,
     date_start: range?.since ?? '',
-    date_stop:  range?.until ?? '',
+    date_stop: range?.until ?? '',
     impressions: '0',
     reach: '0',
     frequency: '0',
@@ -91,8 +91,13 @@ async function createInsightsJob(params: {
   useAccountAttribution?: boolean
 }) {
   const {
-    client, adAccountId, token, appsecret_proof,
-    timeRange, datePreset, fields,
+    client,
+    adAccountId,
+    token,
+    appsecret_proof,
+    timeRange,
+    datePreset,
+    fields,
     timeIncrement = 'all_days',
     actionReportTime = 'conversion',
     useAccountAttribution = true,
@@ -185,9 +190,15 @@ async function fetchInsightsSyncViaAccount(params: {
   useAccountAttribution?: boolean
 }) {
   const {
-    client, adAccountId, token, appsecret_proof,
-    datePreset, timeRange, timeIncrement = 'all_days',
-    actionReportTime = 'conversion', useAccountAttribution = true,
+    client,
+    adAccountId,
+    token,
+    appsecret_proof,
+    datePreset,
+    timeRange,
+    timeIncrement = 'all_days',
+    actionReportTime = 'conversion',
+    useAccountAttribution = true,
   } = params
 
   const out: any[] = []
@@ -226,8 +237,8 @@ async function fetchAllAdsViaAccount(
   let url = `/${act}/ads`
 
   const statuses = opts?.includeArchived
-    ? ['ACTIVE','PAUSED','ARCHIVED','IN_PROCESS','WITH_ISSUES','PENDING_REVIEW','DISAPPROVED']
-    : ['ACTIVE','PAUSED','IN_PROCESS','WITH_ISSUES','PENDING_REVIEW']
+    ? ['ACTIVE', 'PAUSED', 'ARCHIVED', 'IN_PROCESS', 'WITH_ISSUES', 'PENDING_REVIEW', 'DISAPPROVED']
+    : ['ACTIVE', 'PAUSED', 'IN_PROCESS', 'WITH_ISSUES', 'PENDING_REVIEW']
 
   while (url) {
     const res = await client.get(url, {
@@ -269,9 +280,12 @@ async function fetchAllAdStatusesViaAccount(
     for (const r of res?.data?.data ?? []) {
       const id = String(r?.id ?? '')
       if (!id) continue
-      const st = typeof r?.status === 'string'
-        ? r.status
-        : (typeof r?.effective_status === 'string' ? r.effective_status : 'PAUSED')
+      const st =
+        typeof r?.status === 'string'
+          ? r.status
+          : typeof r?.effective_status === 'string'
+            ? r.effective_status
+            : 'PAUSED'
       statusMap.set(id, st)
     }
     const next = res?.data?.paging?.next
@@ -363,8 +377,15 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           if (!reportRunId) {
             this.logger.error('createInsightsJob returned empty report_run_id; falling back to sync insights.')
             insightsRows = await fetchInsightsSyncViaAccount({
-              client, adAccountId, token, appsecret_proof,
-              datePreset, timeRange, timeIncrement, actionReportTime, useAccountAttribution,
+              client,
+              adAccountId,
+              token,
+              appsecret_proof,
+              datePreset,
+              timeRange,
+              timeIncrement,
+              actionReportTime,
+              useAccountAttribution,
             })
           } else {
             await waitForJob(client, reportRunId, token, appsecret_proof, this.logger)
@@ -374,14 +395,23 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           const body = err?.response?.data
           this.logger.error(`Async Insights job failed → fallback to sync GET. Body=${JSON.stringify(body)}`)
           insightsRows = await fetchInsightsSyncViaAccount({
-            client, adAccountId, token, appsecret_proof,
-            datePreset, timeRange, timeIncrement, actionReportTime, useAccountAttribution,
+            client,
+            adAccountId,
+            token,
+            appsecret_proof,
+            datePreset,
+            timeRange,
+            timeIncrement,
+            actionReportTime,
+            useAccountAttribution,
           })
         }
 
         // full list ads (kể cả archived)
         try {
-          allAdsInAccount = await fetchAllAdsViaAccount(client, adAccountId, token, appsecret_proof, { includeArchived: true })
+          allAdsInAccount = await fetchAllAdsViaAccount(client, adAccountId, token, appsecret_proof, {
+            includeArchived: true,
+          })
         } catch (e: any) {
           this.logger.error(`Fetch all ads failed: ${e?.response?.status} ${JSON.stringify(e?.response?.data)}`)
           allAdsInAccount = []
@@ -392,7 +422,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           statusByAdId = await fetchAllAdStatusesViaAccount(client, adAccountId, token, appsecret_proof)
         } catch (e: any) {
           this.logger.error(
-            `Fetch statuses via /ads failed: ${e?.response?.status} ${JSON.stringify(e?.response?.data)}`
+            `Fetch statuses via /ads failed: ${e?.response?.status} ${JSON.stringify(e?.response?.data)}`,
           )
           statusByAdId = new Map<string, string>()
         }
@@ -407,7 +437,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
       }
 
       const accountAdsMap = new Map<string, { id: string; name?: string; effective_status?: string; status?: string }>(
-        allAdsInAccount.map(a => [String(a.id), a]),
+        allAdsInAccount.map((a) => [String(a.id), a]),
       )
 
       // Orphan trong DB
@@ -422,14 +452,14 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
 
       // Tập id: DB (campaign + orphan) ∪ account
       const adIdSet = new Set<string>()
-      for (const c of campaigns) for (const a of (c.ads || [])) if (a?.adId) adIdSet.add(String(a.adId))
+      for (const c of campaigns) for (const a of c.ads || []) if (a?.adId) adIdSet.add(String(a.adId))
       for (const a of orphanAds) if (a?.adId) adIdSet.add(String(a.adId))
       for (const a of allAdsInAccount) if (a?.id) adIdSet.add(String(a.id))
       const allAdIds = Array.from(adIdSet)
 
       const findDbAd = (adId: string) =>
-        campaigns.flatMap(c => c.ads || []).find(a => String(a.adId) === adId) ||
-        orphanAds.find(a => String(a.adId) === adId)
+        campaigns.flatMap((c) => c.ads || []).find((a) => String(a.adId) === adId) ||
+        orphanAds.find((a) => String(a.adId) === adId)
 
       const buildAdViewFromId = (adId: string) => {
         const dbAd = findDbAd(adId)
@@ -456,11 +486,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         const costPerMessageNumber = messages > 0 ? spendNumber / messages : 0
         const costPerClickNumber = clicks > 0 ? spendNumber / clicks : 0
 
-        const status =
-          statusByAdId.get(adId) ||
-          fromAccount?.effective_status ||
-          fromAccount?.status ||
-          'PAUSED'
+        const status = statusByAdId.get(adId) || fromAccount?.effective_status || fromAccount?.status || 'PAUSED'
 
         return {
           adId,
@@ -489,7 +515,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
       const dataFromCampaigns = await Promise.all(
         campaigns.map(async (camp) => {
           const ads = (camp.ads || [])
-            .map(a => String(a.adId))
+            .map((a) => String(a.adId))
             .filter(Boolean)
             .map(buildAdViewFromId)
 
@@ -536,7 +562,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
       // Orphan campaign (DB)
       let syntheticCampaign: any = null
       if (orphanAds && orphanAds.length) {
-        const ads = orphanAds.map(a => buildAdViewFromId(String(a.adId)))
+        const ads = orphanAds.map((a) => buildAdViewFromId(String(a.adId)))
         const summary = ads.reduce(
           (acc, a) => {
             acc.impressions += toNumber(a.data.impressions)
@@ -595,17 +621,27 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         return {
           status: 'PAUSED',
           insights: {
-            impressions: 0, clicks: 0, spend: '0', spendNumber: 0,
-            ctr: '0.00', cpm: '0', messages: 0,
-            costPerMessage: '0', costPerMessageNumber: 0,
-            costPerClick: '0', costPerClickNumber: 0,
+            impressions: 0,
+            clicks: 0,
+            spend: '0',
+            spendNumber: 0,
+            ctr: '0.00',
+            cpm: '0',
+            messages: 0,
+            costPerMessage: '0',
+            costPerMessageNumber: 0,
+            costPerClick: '0',
+            costPerClickNumber: 0,
           },
         }
       }
       try {
         const [statusRes, insightsRes] = await Promise.all([
           client.get(`/${adId}`, {
-            params: { fields: 'status', ...(appsecret_proof_external ? { appsecret_proof: appsecret_proof_external } : {}) },
+            params: {
+              fields: 'status',
+              ...(appsecret_proof_external ? { appsecret_proof: appsecret_proof_external } : {}),
+            },
             headers: { Authorization: `Bearer ${tokenExternal}` },
             timeout: 15000,
           }),
@@ -664,14 +700,23 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         }
       } catch (error: any) {
         const e = error?.response?.data?.error
-        this.logger.error(`❌ Lỗi lấy dữ liệu ad ${adId}: ${e?.message || error?.message} (code=${e?.code}, sub=${e?.error_subcode})`)
+        this.logger.error(
+          `❌ Lỗi lấy dữ liệu ad ${adId}: ${e?.message || error?.message} (code=${e?.code}, sub=${e?.error_subcode})`,
+        )
         return {
           status: 'PAUSED',
           insights: {
-            impressions: 0, clicks: 0, spend: '0', spendNumber: 0,
-            ctr: '0.00', cpm: '0', messages: 0,
-            costPerMessage: '0', costPerMessageNumber: 0,
-            costPerClick: '0', costPerClickNumber: 0,
+            impressions: 0,
+            clicks: 0,
+            spend: '0',
+            spendNumber: 0,
+            ctr: '0.00',
+            cpm: '0',
+            messages: 0,
+            costPerMessage: '0',
+            costPerMessageNumber: 0,
+            costPerClick: '0',
+            costPerClickNumber: 0,
           },
         }
       }

@@ -10,15 +10,7 @@ import FormData from 'form-data'
 import crypto from 'node:crypto'
 import { FacebookCampaign } from '@models/facebook_campaign.entity'
 import moment from 'moment-timezone'
-import {
-  AdItem,
-  AnyDto,
-  campaignFields,
-  GeoLocationsInput,
-  ListOpts,
-  MediaKind,
-  TargetingSpec,
-} from './types/ads.type'
+import { AdItem, AnyDto, campaignFields, GeoLocationsInput, ListOpts, MediaKind, TargetingSpec } from './types/ads.type'
 import {
   getPerfGoalSequenceForEngagement,
   getPerfGoalSequenceForLeads,
@@ -42,11 +34,7 @@ function buildAppSecretProof(token?: string) {
   return crypto.createHmac('sha256', secret).update(token).digest('hex')
 }
 
-function createFbGraphClient(opts: {
-  token: string
-  version?: string
-  timeoutMs?: number
-}): AxiosInstance {
+function createFbGraphClient(opts: { token: string; version?: string; timeoutMs?: number }): AxiosInstance {
   const { token, version = 'v23.0', timeoutMs = 20_000 } = opts
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -102,7 +90,9 @@ export class FacebookAdsInternalService {
     const cfg = err?.config || {}
     const preview =
       typeof cfg.data === 'string'
-        ? (cfg.data.length > 2000 ? cfg.data.slice(0, 2000) + '...[truncated]' : cfg.data)
+        ? cfg.data.length > 2000
+          ? cfg.data.slice(0, 2000) + '...[truncated]'
+          : cfg.data
         : undefined
     this.logger.error(
       'Request info (no token): ' +
@@ -188,7 +178,10 @@ export class FacebookAdsInternalService {
     if (!postId) return 'unknown'
     try {
       this.logger.log(`STEP detectMediaKind → GET /${postId} (attachments,type)`)
-      const { data } = await fb.get(`/${postId}`, { params: { fields: 'attachments{media_type},type' }, timeout: 15_000 })
+      const { data } = await fb.get(`/${postId}`, {
+        params: { fields: 'attachments{media_type},type' },
+        timeout: 15_000,
+      })
       const type: string | undefined = data?.type
       const att = data?.attachments?.data?.[0]
       const mediaType: string | undefined = att?.media_type
@@ -363,11 +356,9 @@ export class FacebookAdsInternalService {
     }
 
     // --- AUDIENCE SAFETY CHECK ---
-    let totalInterests =
-      targeting.flexible_spec?.map((fs) => fs.interests?.length || 0).reduce((a, b) => a + b, 0) || 0
+    let totalInterests = targeting.flexible_spec?.map((fs) => fs.interests?.length || 0).reduce((a, b) => a + b, 0) || 0
 
-    const userFixedAge =
-      typeof targeting.age_min === 'number' || typeof targeting.age_max === 'number'
+    const userFixedAge = typeof targeting.age_min === 'number' || typeof targeting.age_max === 'number'
 
     if (userFixedAge) {
       this.logger.warn('[FacebookAdsService] User fixed age range → disable Advantage Audience')
@@ -446,7 +437,9 @@ export class FacebookAdsInternalService {
       const content = res.data?.choices?.[0]?.message?.content
       if (!content) return []
       const parsed = JSON.parse(content)
-      const names: string[] = Array.isArray(parsed?.interests) ? parsed.interests.map((i: any) => i.name).filter(Boolean) : []
+      const names: string[] = Array.isArray(parsed?.interests)
+        ? parsed.interests.map((i: any) => i.name).filter(Boolean)
+        : []
       if (!names.length) return []
       this.logger.log(`[FacebookAdsService] ✅ GPT fallback interests: ${JSON.stringify(names)}`)
       // Không có adAccountId ở đây → skip lookup nếu không có
@@ -818,11 +811,9 @@ export class FacebookAdsInternalService {
         payload.is_adset_budget_sharing_enabled = String(isSharing) // 'true' | 'false'
       }
 
-      const res = await fb.post(
-        `/${adAccountId}/campaigns`,
-        qs.stringify(payload),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
-      )
+      const res = await fb.post(`/${adAccountId}/campaigns`, qs.stringify(payload), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      })
       this.logger.log(`✅ Campaign created: ${res.data.id}`)
       return res.data.id
     } catch (error: any) {

@@ -233,7 +233,9 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
 
     // ===== Auth & headers theo INTERNAL / EXTERNAL =====
     const isInternal = !!ad.createdBy?.isInternal
-    const token: string | undefined = isInternal ? (ad.createdBy as any)?.internalUserAccessToken : (ad.createdBy as any)?.accessTokenUser
+    const token: string | undefined = isInternal
+      ? (ad.createdBy as any)?.internalUserAccessToken
+      : (ad.createdBy as any)?.accessTokenUser
     const rawCookie: string | undefined = !isInternal ? (ad.createdBy?.cookie as string | undefined) : undefined
 
     const headers: Record<string, string> = { Accept: 'application/json' }
@@ -270,8 +272,8 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
               since: minDate.format('YYYY-MM-DD'),
               until: maxDate.format('YYYY-MM-DD'),
             }),
-            time_increment: 1,                 // ✅ trả về theo từng ngày
-            action_report_time: 'conversion',  // gần giống Ads Manager
+            time_increment: 1, // ✅ trả về theo từng ngày
+            action_report_time: 'conversion', // gần giống Ads Manager
             use_account_attribution_setting: true,
             ...(appsecret_proof ? { appsecret_proof } : {}),
           },
@@ -356,13 +358,7 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
   }
 
   /** Chuẩn hoá 1 dòng insight/ngày + gọi AI + render + upsert DB */
-  private async upsertDailyInsight(args: {
-    ad: FacebookAd
-    adId: string
-    date: string
-    row: any
-    targeting: any
-  }) {
+  private async upsertDailyInsight(args: { ad: FacebookAd; adId: string; date: string; row: any; targeting: any }) {
     const { ad, adId, date, row, targeting } = args
     const dateStart = moment(date).startOf('day')
 
@@ -414,10 +410,18 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
     if (Array.isArray(row?.cost_per_action_type)) {
       const found = row.cost_per_action_type.find(
         (c: any) =>
-          String(c.action_type || '').toLowerCase().includes('message') ||
-          String(c.action_type || '').toLowerCase().includes('messaging') ||
-          String(c.action_type || '').toLowerCase().includes('conversation') ||
-          String(c.action_type || '').toLowerCase().includes('messenger'),
+          String(c.action_type || '')
+            .toLowerCase()
+            .includes('message') ||
+          String(c.action_type || '')
+            .toLowerCase()
+            .includes('messaging') ||
+          String(c.action_type || '')
+            .toLowerCase()
+            .includes('conversation') ||
+          String(c.action_type || '')
+            .toLowerCase()
+            .includes('messenger'),
       )
       if (found) costPerMessageFromApi = toNum(found.value)
     }
@@ -514,7 +518,9 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
       <h4>🎯 Tóm tắt Targeting</h4>
       <p>${targetingSummary.summary}</p>
       <div style="margin-top:8px;">${
-        targetingSummary.lines.length ? `<ul>${targetingSummary.lines.map((l) => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>` : ''
+        targetingSummary.lines.length
+          ? `<ul>${targetingSummary.lines.map((l) => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>`
+          : ''
       }</div>
     `
 

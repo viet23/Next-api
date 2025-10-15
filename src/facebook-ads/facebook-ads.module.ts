@@ -23,8 +23,15 @@ import { FacebookAdsInternalService } from './facebook-ads-internal.service'
     CqrsModule,
     FacebookPostModule,
   ],
-  providers: [FacebookAdsService, AiPlannerService, FacebookAdsUpdateService, TargetingSearchService, SetStatusService ,FacebookAdsInternalService],
+  providers: [
+    FacebookAdsService,
+    AiPlannerService,
+    FacebookAdsUpdateService,
+    TargetingSearchService,
+    SetStatusService,
+    FacebookAdsInternalService,
+  ],
   controllers: [FacebookAdsController],
-  exports: [FacebookAdsService , FacebookAdsInternalService],
+  exports: [FacebookAdsService, FacebookAdsInternalService],
 })
 export class FacebookModule {}
