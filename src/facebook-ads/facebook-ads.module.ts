@@ -15,11 +15,13 @@ import { TargetingSearchService } from './targeting-search.service'
 import { SetStatusService } from './set-status.service'
 import { FacebookCampaign } from '@models/facebook_campaign.entity'
 import { FacebookAdsInternalService } from './facebook-ads-internal.service'
+import { PlanUsageService } from './check-plan-service'
+import { UserSubscription } from '@models/user-subscription.entity'
 
 @Module({
   imports: [
     HttpModule,
-    TypeOrmModule.forFeature([User, FacebookAd, AdInsight, FacebookCampaign]),
+    TypeOrmModule.forFeature([User, FacebookAd, AdInsight, FacebookCampaign, UserSubscription]),
     CqrsModule,
     FacebookPostModule,
   ],
@@ -30,8 +32,9 @@ import { FacebookAdsInternalService } from './facebook-ads-internal.service'
     TargetingSearchService,
     SetStatusService,
     FacebookAdsInternalService,
+    PlanUsageService
   ],
   controllers: [FacebookAdsController],
-  exports: [FacebookAdsService, FacebookAdsInternalService],
+  exports: [FacebookAdsService, FacebookAdsInternalService, PlanUsageService],
 })
-export class FacebookModule {}
+export class FacebookModule { }

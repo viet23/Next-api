@@ -31,6 +31,10 @@ import { User } from '@models/user.entity'
 import { SetStatusService } from './set-status.service'
 import { FacebookPostIInternalService } from 'src/facebook-post/facebook-post-internal.service'
 import { FacebookAdsInternalService } from './facebook-ads-internal.service'
+import { PlanUsageService } from './check-plan-service'
+
+// ⬇️ Thêm: service kiểm tra gói/giới hạn theo currentPlan (startDate → endDate)
+
 
 @ApiTags('facebook-ads')
 @Controller('facebook-ads')
@@ -43,29 +47,61 @@ export class FacebookAdsController {
     private readonly setStatus: SetStatusService,
     private readonly internalService: FacebookPostIInternalService,
     private readonly fbAdsInternalService: FacebookAdsInternalService,
+    private readonly planUsageService: PlanUsageService, // ⬅️ inject
 
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-  ) {}
+  ) { }
+
+  /** Helper: suy ra ngân sách/tháng từ DTO (ưu tiên monthlyBudget → budgetMonthly → dailyBudget*30) */
+  private getProposedMonthlyBudgetFromDto(dto: CreateFacebookAdDto): number | null {
+    const anyDto = dto as any
+    const monthly =
+      typeof anyDto.monthlyBudget === 'number'
+        ? anyDto.monthlyBudget
+        : typeof anyDto.budgetMonthly === 'number'
+          ? anyDto.budgetMonthly
+          : typeof anyDto.dailyBudget === 'number'
+            ? Math.round(anyDto.dailyBudget * 30)
+            : null
+    return typeof monthly === 'number' && !Number.isNaN(monthly) ? monthly : null
+  }
 
   @Post('create')
   @UseGuards(JwtAuthGuard)
   async createAd(@Body() dto: CreateFacebookAdDto, @Authen() user: User) {
     if (!user?.email) throw new BadRequestException('Không xác định được email người dùng từ token.')
-    console.log('fetchFromGraph user:', user)
-    if (!user?.email) {
-      throw new BadRequestException('Không xác định được email người dùng từ token.')
-    }
+
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
     if (!userData) {
       throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`)
     }
 
-    if (userData.isInternal) {
-      console.log('++++++++++++++++++User is internal, using internal service to create ad')
+    // ====== Kiểm tra gói theo currentPlan (startDate → endDate) ======
+    // 1) Chặn nếu gói đã hết hạn / đã hết lượt campaign trong kỳ gói
 
-      return this.fbAdsInternalService.createFacebookAd(dto, user)
+    await this.planUsageService.assertCanCreateCampaign(userData.id)
+
+
+    // 2) Chặn nếu ngân sách/campaign vượt trần gói (Free/Starter). Pro/Enterprise: unlimited.
+    const proposedMonthlyBudget = this.getProposedMonthlyBudgetFromDto(dto)
+    if (proposedMonthlyBudget != null) {
+      await this.planUsageService.assertBudgetAllowed(userData.id, proposedMonthlyBudget)
     }
-    return this.fbService.createFacebookAd(dto, user)
+
+    console.log(`userData+++++++++++++1`, userData);
+    // 3) Lấy report để FE hiển thị cảnh báo sắp hết hạn / isPaid=false (không bắt buộc nhưng hữu ích)
+    const planUsage = await this.planUsageService.evaluateUsage(userData)
+
+    console.log(`userData+++++++++++++2`, userData);
+
+
+    // ====== Tạo quảng cáo như logic cũ ======
+    if (userData.isInternal) {
+      const result = await this.fbAdsInternalService.createFacebookAd(dto, user)
+      return { result, planUsage }
+    }
+    const result = await this.fbService.createFacebookAd(dto, user)
+    return { result, planUsage }
   }
 
   @Put(':id')
@@ -113,10 +149,7 @@ export class FacebookAdsController {
   @UseGuards(JwtAuthGuard)
   async fetchFromGraph(@Authen() user: User) {
     if (!user?.email) throw new BadRequestException('Không xác định được email người dùng từ token.')
-    console.log('fetchFromGraph user:', user)
-    if (!user?.email) {
-      throw new BadRequestException('Không xác định được email người dùng từ token.')
-    }
+
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
     if (!userData) {
       throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`)

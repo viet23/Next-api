@@ -349,6 +349,9 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
     }
     const [campaigns, campaignTotal] = await qb.getManyAndCount()
 
+    console.log(`campaigns = =======================`, campaigns);
+    
+
     /** 2) Client theo isInternal */
     const isInternal = !!userData?.isInternal
     const token = (isInternal ? (userData as any)?.internalUserAccessToken : (userData as any)?.accessTokenUser) as
