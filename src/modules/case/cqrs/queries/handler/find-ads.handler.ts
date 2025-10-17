@@ -214,6 +214,16 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
       where: { adId: id },
       order: { createdAt: 'ASC' },
     })
+
+    // ✅ Nếu là internal thì KHÔNG call Facebook, trả về dữ liệu trong DB
+    if (ad.createdBy?.isInternal) {
+      this.logger.log(
+        `🔒 Internal user: bỏ qua gọi Facebook, trả về dữ liệu trong DB (${existingInsights.length} bản ghi) từ ${start.format('YYYY-MM-DD')} → ${end.format('YYYY-MM-DD')}`,
+      )
+      return existingInsights
+    }
+
+    // ---- Luồng EXTERNAL (giữ nguyên) ----
     const existingDates = existingInsights.map((i) => moment(i.createdAt).format('YYYY-MM-DD'))
 
     // Danh sách ngày cần có
@@ -231,12 +241,9 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
 
     this.logger.log(`🧩 Còn thiếu ${missingDates.length} ngày: ${missingDates.join(', ')}`)
 
-    // ===== Auth & headers theo INTERNAL / EXTERNAL =====
-    const isInternal = !!ad.createdBy?.isInternal
-    const token: string | undefined = isInternal
-      ? (ad.createdBy as any)?.internalUserAccessToken
-      : (ad.createdBy as any)?.accessTokenUser
-    const rawCookie: string | undefined = !isInternal ? (ad.createdBy?.cookie as string | undefined) : undefined
+    // ===== Auth & headers cho EXTERNAL =====
+    const token: string | undefined = (ad.createdBy as any)?.accessTokenUser
+    const rawCookie: string | undefined = ad.createdBy?.cookie as string | undefined
 
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (rawCookie) headers.Cookie = rawCookie
@@ -244,7 +251,7 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
 
     const appsecret_proof = buildAppSecretProof(token)
 
-    // ===== Targeting: lấy 1 lần (đủ dùng cho tất cả ngày) =====
+    // ===== Targeting: lấy 1 lần =====
     let targeting: any = null
     try {
       const tRes = await axios.get(`https://graph.facebook.com/${GRAPH_VER}/${id}`, {
@@ -260,55 +267,9 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
       this.logger.warn(`⚠️ Không lấy được targeting cho ad ${id}: ${tErr.message}`)
     }
 
-    // ===== INTERNAL: gom call cho toàn khoảng thiếu bằng time_increment=1 =====
-    if (isInternal && token) {
-      const minDate = moment(missingDates[0], 'YYYY-MM-DD')
-      const maxDate = moment(missingDates[missingDates.length - 1], 'YYYY-MM-DD')
-      try {
-        const fbRes = await axios.get(`https://graph.facebook.com/${GRAPH_VER}/${id}/insights`, {
-          params: {
-            fields: INSIGHTS_FIELDS,
-            time_range: JSON.stringify({
-              since: minDate.format('YYYY-MM-DD'),
-              until: maxDate.format('YYYY-MM-DD'),
-            }),
-            time_increment: 1, // ✅ trả về theo từng ngày
-            action_report_time: 'conversion', // gần giống Ads Manager
-            use_account_attribution_setting: true,
-            ...(appsecret_proof ? { appsecret_proof } : {}),
-          },
-          headers,
-          timeout: 30000,
-        })
-
-        const rows: any[] = Array.isArray(fbRes?.data?.data) ? fbRes.data.data : []
-        // Lọc chỉ những ngày còn thiếu
-        const rowsByDate = new Map<string, any>()
-        for (const r of rows) {
-          const k = String(r?.date_start || '')
-          if (k) rowsByDate.set(k, r)
-        }
-
-        for (const date of missingDates) {
-          const r = rowsByDate.get(date)
-          if (!r) {
-            this.logger.warn(`⚠️ INTERNAL: thiếu dữ liệu ngày ${date} trong kết quả gom-call, bỏ qua.`)
-            continue
-          }
-          await this.upsertDailyInsight({ ad, adId: id, date, row: r, targeting })
-        }
-      } catch (err: any) {
-        this.logger.error(`❌ INTERNAL fetch range failed, fallback sang per-day. Lý do: ${err?.message || err}`)
-        // fallback: per-day như external
-        for (const date of missingDates) {
-          await this.fetchAndSaveOneDay({ ad, adId: id, date, headers, appsecret_proof, targeting })
-        }
-      }
-    } else {
-      // ===== EXTERNAL (hoặc thiếu token): per-day như trước =====
-      for (const date of missingDates) {
-        await this.fetchAndSaveOneDay({ ad, adId: id, date, headers, appsecret_proof, targeting })
-      }
+    // ===== EXTERNAL: per-day như trước =====
+    for (const date of missingDates) {
+      await this.fetchAndSaveOneDay({ ad, adId: id, date, headers, appsecret_proof, targeting })
     }
 
     // Lấy lại tất cả báo cáo
@@ -322,7 +283,7 @@ export class FindAdsQueryHandler implements IQueryHandler<FindAdsQuery> {
     return finalReports
   }
 
-  /** EXTERNAL/per-day (và INTERNAL fallback): gọi 1 ngày, render + lưu */
+  /** EXTERNAL/per-day: gọi 1 ngày, render + lưu */
   private async fetchAndSaveOneDay(params: {
     ad: FacebookAd
     adId: string

@@ -212,6 +212,16 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
       where: { adId: id },
       order: { createdAt: 'ASC' },
     })
+
+    // ✅ NEW: Nếu là internal thì KHÔNG gọi Facebook — chỉ trả về dữ liệu DB
+    if (ad.createdBy?.isInternal) {
+      this.logger.log(
+        `🔒 Internal user: bỏ qua gọi Facebook, trả về dữ liệu trong DB (${existing.length} bản ghi) từ ${start.format('YYYY-MM-DD')} → ${end.format('YYYY-MM-DD')}`,
+      )
+      return existing
+    }
+
+    // ---- Luồng EXTERNAL (giữ nguyên) ----
     const existingDates = existing.map((i) => moment(i.createdAt).format('YYYY-MM-DD'))
 
     // Tập ngày cần đầy đủ
@@ -226,12 +236,9 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
     }
     this.logger.log(`🧩 Còn thiếu ${missingDates.length} ngày: ${missingDates.join(', ')}`)
 
-    // Auth theo INTERNAL / EXTERNAL
-    const isInternal = !!ad.createdBy?.isInternal
-    const token: string | undefined = isInternal
-      ? (ad.createdBy as any)?.internalUserAccessToken
-      : (ad.createdBy as any)?.accessTokenUser
-    const rawCookie: string | undefined = !isInternal ? (ad.createdBy?.cookie as string | undefined) : undefined
+    // Auth EXTERNAL
+    const token: string | undefined = (ad.createdBy as any)?.accessTokenUser
+    const rawCookie: string | undefined = ad.createdBy?.cookie as string | undefined
 
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (rawCookie) headers.Cookie = rawCookie
@@ -251,50 +258,9 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
       this.logger.warn(`⚠️ Không lấy được targeting cho ad ${id}: ${tErr.message}`)
     }
 
-    // INTERNAL: gom 1 call cho toàn khoảng ngày thiếu
-    if (isInternal && token) {
-      const minDate = moment(missingDates[0], 'YYYY-MM-DD')
-      const maxDate = moment(missingDates[missingDates.length - 1], 'YYYY-MM-DD')
-
-      try {
-        const fbRes = await axios.get(`https://graph.facebook.com/${GRAPH_VER}/${id}/insights`, {
-          params: {
-            fields: INSIGHTS_FIELDS,
-            time_range: JSON.stringify({ since: minDate.format('YYYY-MM-DD'), until: maxDate.format('YYYY-MM-DD') }),
-            time_increment: 1, // theo ngày
-            action_report_time: 'conversion',
-            use_account_attribution_setting: true,
-            ...(appsecret_proof ? { appsecret_proof } : {}),
-          },
-          headers,
-          timeout: 30000,
-        })
-        const rows: any[] = Array.isArray(fbRes?.data?.data) ? fbRes.data.data : []
-        const mapByDate = new Map<string, any>()
-        for (const r of rows) {
-          const k = String(r?.date_start || '')
-          if (k) mapByDate.set(k, r)
-        }
-
-        for (const d of missingDates) {
-          const row = mapByDate.get(d)
-          if (!row) {
-            this.logger.warn(`⚠️ INTERNAL: thiếu dữ liệu ngày ${d} trong kết quả gom-call, bỏ qua.`)
-            continue
-          }
-          await this.upsertDailyInsight({ ad, adId: id, date: d, row, targeting })
-        }
-      } catch (err: any) {
-        this.logger.error(`❌ INTERNAL fetch range failed, fallback per-day. Lý do: ${err?.message || err}`)
-        for (const d of missingDates) {
-          await this.fetchAndSaveOneDay({ ad, adId: id, date: d, headers, appsecret_proof, targeting })
-        }
-      }
-    } else {
-      // EXTERNAL (hoặc thiếu token internal): per-day
-      for (const d of missingDates) {
-        await this.fetchAndSaveOneDay({ ad, adId: id, date: d, headers, appsecret_proof, targeting })
-      }
+    // EXTERNAL: per-day
+    for (const d of missingDates) {
+      await this.fetchAndSaveOneDay({ ad, adId: id, date: d, headers, appsecret_proof, targeting })
     }
 
     // Lấy lại tất cả
@@ -308,7 +274,7 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
     return finalReports
   }
 
-  /** EXTERNAL/per-day (và INTERNAL fallback): gọi 1 ngày, render + lưu */
+  /** EXTERNAL/per-day: gọi 1 ngày, render + lưu */
   private async fetchAndSaveOneDay(params: {
     ad: FacebookAd
     adId: string
@@ -343,7 +309,7 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
     await this.upsertDailyInsight({ ad, adId, date, row: data, targeting })
   }
 
-  /** Chuẩn hoá 1 dòng insight/ngày + render + upsert DB (AI giữ nguyên như trước nếu bạn cần bổ sung sau) */
+  /** Chuẩn hoá 1 dòng insight/ngày + render + upsert DB (AI có thể bổ sung sau nếu cần) */
   private async upsertDailyInsight(args: { ad: FacebookAd; adId: string; date: string; row: any; targeting: any }) {
     const { ad, adId, date, row, targeting } = args
     const dateStart = moment(date).startOf('day')
@@ -414,7 +380,7 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
     const costPerMessageComputed = messageCount > 0 ? spend / messageCount : null
     const costPerMessage = costPerMessageFromApi ?? costPerMessageComputed
 
-    // HTML report (AI phần này bạn có thể thêm vào sau cho nhẹ cron)
+    // HTML report
     const targetingSummary = this.summarizeTargeting(targeting)
     const htmlReport = `
       <h3>📅 Báo cáo ngày ${moment(date).format('DD/MM/YYYY')}</h3>
@@ -466,7 +432,7 @@ export class FindAdsHistoryQueryHandler implements IQueryHandler<FindAdsHistoryQ
         cpcVnd: vnd(cpc),
         totalEngagement: String(totalEngagement),
         engagementDetails: JSON.stringify(engagementItems),
-        recommendation: existed.recommendation || null, // (tuỳ chọn) thêm AI sau
+        recommendation: existed.recommendation || null,
         htmlReport,
         updatedAt: new Date(),
       })
