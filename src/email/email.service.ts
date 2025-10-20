@@ -678,7 +678,7 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
   <hr style="margin:16px 0;"/>
   <h4>✉️ Tin nhắn (Messaging)</h4>
   <p><strong>Số lượng hành động liên quan tin nhắn:</strong> ${messageCount ? int(messageCount) : '0'}</p>
-  <p><strong>Chi phí / 1 tin nhắn:</strong> ${costPerMessage ? vnd(costPerMessage) + ' VNĐ' : 'Không xác định'}</p>
+  <p><strong>Chi phí / 1 tin nhắn:</strong> ${costPerMessage ? vnd(spend / messageCount) + ' VNĐ' : 'Không xác định'}</p>
 
   <hr style="margin:16px 0;"/>
   <h4>🎯 Tóm tắt Targeting</h4>
