@@ -190,14 +190,14 @@ export class FacebookAdsController {
     if (!userData) {
       throw new BadRequestException(`Không tìm thấy thông tin người dùng với email: ${user.email}`)
     }
-    const { accessTokenUser, cookie: rawCookie } = userData
-    if (!accessTokenUser) {
-      throw new BadRequestException('Người dùng chưa liên kết Facebook hoặc thiếu accessTokenUser.')
+    const { internalUserAccessToken } = userData
+    if (!internalUserAccessToken) {
+      throw new BadRequestException('Người dùng chưa liên kết Facebook hoặc thiếu internalUserAccessToken.')
     }
 
     const raw = await this.targetingSearch.search(
       { q, country_code, location_types, limit, version },
-      { token: accessTokenUser, cookie: rawCookie },
+      { token: internalUserAccessToken},
     )
 
     return normalize === '1' ? this.targetingSearch.normalize(raw) : raw

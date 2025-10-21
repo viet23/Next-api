@@ -207,15 +207,7 @@ export function getPerfGoalSequenceForMessage(initial: string): string[] {
  */
 export function getPerfGoalSequenceForEngagement(initial: string, media: MediaKind): string[] {
   const base: string[] = [
-    'PROFILE_AND_PAGE_ENGAGEMENT',
-    'POST_ENGAGEMENT',
-    'PAGE_LIKES',
-    'EVENT_RESPONSES',
-    'THRUPLAY',
-    'PROFILE_VISIT',
     'REACH',
-    'IMPRESSIONS',
-    'AUTOMATIC_OBJECTIVE',
   ]
   let seq = Array.from(new Set([initial, ...base]))
   if (media !== 'video') seq = seq.filter((g) => g !== 'THRUPLAY')
@@ -303,15 +295,56 @@ export function normalizeTargetingForCreation(t?: TargetingSpec): TargetingSpec 
  * Merge một chunk {interests?, behaviors?} vào flexible_spec của targeting.
  * Trả về object mới (không mutate input).
  */
-export function mergeFlex(t?: TargetingSpec, chunk?: { interests?: any[]; behaviors?: any[] }) {
-  const base: TargetingSpec = t ? { ...t } : {}
-  const flex: any[] = Array.isArray(base.flexible_spec) ? [...base.flexible_spec] : []
+type FlexChunk = {
+  interests?: Array<{ id: string; name?: string }>
+  behaviors?: Array<{ id: string; name?: string }>
+}
 
-  if (chunk) {
-    const entry = createFlexEntry(chunk)
-    if (entry) flex.push(entry)
+export function mergeFlex(t?: TargetingSpec, chunk?: FlexChunk): TargetingSpec {
+  console.log(`mergeFlex called with chunk:`, chunk)
+
+  // clone nông targeting gốc
+  const base: TargetingSpec = t ? { ...t } : {}
+
+  // Lấy flexible_spec hiện có (clone nông), hoặc tạo mảng rỗng
+  const flex: any[] = Array.isArray(base.flexible_spec)
+    ? base.flexible_spec.map(g => ({ ...g }))
+    : []
+
+  // Đảm bảo luôn có 1 group đầu tiên để OR-merge
+  const g0: any = flex[0] || (flex[0] = {})
+
+  // Merge interests
+  if (chunk?.interests?.length) {
+    const existing = new Map<string, any>(
+      Array.isArray(g0.interests)
+        ? g0.interests.map((i: any) => [String(i.id), i])
+        : []
+    )
+    for (const it of chunk.interests) {
+      if (it && it.id) existing.set(String(it.id), it)
+    }
+    g0.interests = Array.from(existing.values())
   }
 
+  // Merge behaviors
+  if (chunk?.behaviors?.length) {
+    const existing = new Map<string, any>(
+      Array.isArray(g0.behaviors)
+        ? g0.behaviors.map((i: any) => [String(i.id), i])
+        : []
+    )
+    for (const it of chunk.behaviors) {
+      if (it && it.id) existing.set(String(it.id), it)
+    }
+    g0.behaviors = Array.from(existing.values())
+  }
+
+  // Nếu group đầu tiên rỗng (không có interests/behaviors), xoá nó
+  const isG0Empty = !g0.interests?.length && !g0.behaviors?.length
+  if (isG0Empty) flex.splice(0, 1)
+
+  // Gán lại flexible_spec hoặc xoá nếu rỗng
   if (flex.length) base.flexible_spec = flex
   else delete base.flexible_spec
 

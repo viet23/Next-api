@@ -20,7 +20,7 @@ import {
   mapCampaignObjective,
   mapGender,
   mapPlacements,
-  mergeFlex,
+  mergeFlex, // OR-merge 1 group, dedupe theo id, KHÔNG giới hạn số lượng
   normalizePlacements,
   normalizeRadiusToMiles,
   normalizeTargetingForCreation,
@@ -56,7 +56,7 @@ function createFbGraphClient(opts: { token: string; version?: string; timeoutMs?
 
 /** ===================== Utils ===================== */
 function toIsoNoMs(s?: string) {
-  if (!s) return s
+  if (!s) return s as any
   return new Date(s).toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
@@ -173,6 +173,46 @@ export class FacebookAdsInternalService {
     return Object.keys(out).length ? out : undefined
   }
 
+  /** ===================== Shape cleaners (chốt chặn path/field lạ) ===================== */
+  // Chỉ cho phép {id, name?} cho interests/behaviors
+  private sanitizeInterestArray(arr: any[]): Array<{ id: string; name?: string }> {
+    if (!Array.isArray(arr)) return []
+    const cleaned = arr
+      .map((i) => {
+        const id = i?.id != null ? String(i.id) : ''
+        const name = typeof i?.name === 'string' ? i.name : undefined
+        return /^\d+$/.test(id) ? { id, name } : null
+      })
+      .filter(Boolean) as Array<{ id: string; name?: string }>
+    // de-dupe theo id
+    return Array.from(new Map(cleaned.map((x) => [x.id, x])).values())
+  }
+
+  private sanitizeBehaviorArray(arr: any[]): Array<{ id: string; name?: string }> {
+    return this.sanitizeInterestArray(arr)
+  }
+
+  private sanitizeFlexibleSpecStrict(tp: any): any {
+    if (!tp || !Array.isArray(tp.flexible_spec)) return tp
+    const flex = tp.flexible_spec
+      .map((g: any) => {
+        const o: any = {}
+        if (Array.isArray(g.interests) && g.interests.length) {
+          o.interests = this.sanitizeInterestArray(g.interests) // chỉ id/name – loại path
+        }
+        if (Array.isArray(g.behaviors) && g.behaviors.length) {
+          o.behaviors = this.sanitizeBehaviorArray(g.behaviors)
+        }
+        // có thể mở rộng thêm employers, job_titles... nếu bạn dùng
+        return Object.keys(o).length ? o : null
+      })
+      .filter(Boolean)
+    const out = { ...tp }
+    if (flex.length) out.flexible_spec = flex
+    else delete out.flexible_spec
+    return out
+  }
+
   /** ===================== Helpers (Graph utils) ===================== */
   private async detectMediaKind(postId: string, fb: AxiosInstance): Promise<MediaKind> {
     if (!postId) return 'unknown'
@@ -204,7 +244,7 @@ export class FacebookAdsInternalService {
     }
   }
 
-  // dùng targetingsearch thay vì /search?type=adinterest
+  // targetingsearch (lọc đúng Interest), fallback /search
   private async searchInterestsByNames(
     names: string[],
     fb: AxiosInstance,
@@ -214,18 +254,43 @@ export class FacebookAdsInternalService {
     const uniq = Array.from(new Set((names || []).filter(Boolean).map((s) => s.trim())))
     const acc = adAccountId || ''
     if (!acc) return results
+
     for (const q of uniq) {
+      // 1) targetingsearch
       try {
-        this.logger.log(`STEP targetingsearch interest '${q}'`)
+        this.logger.log(`STEP targetingsearch '${q}' (type=adinterest, en_US)`)
         const { data } = await fb.get(`/${acc}/targetingsearch`, {
-          params: { q, type: 'adinterest', limit: 10, locale: 'vi_VN' },
-          timeout: 15_000,
+          params: { q, type: 'adinterest', limit: 25, locale: 'en_US' },
+          timeout: 15000,
         })
-        const top = Array.isArray(data?.data) ? data.data[0] : undefined
-        if (top?.id) results.push({ id: String(top.id), name: top.name })
-      } catch {}
+        const rows: any[] = Array.isArray(data?.data) ? data.data : []
+        const onlyInterests = rows.filter((r) => Array.isArray(r?.path) && r.path[0] === 'Interests')
+        if (onlyInterests.length) {
+          // Chỉ push {id, name}
+          results.push(...onlyInterests.map((r) => ({ id: String(r.id), name: r.name })))
+          continue
+        }
+      } catch (e: any) {
+        this.logger.warn(`[targetingsearch] '${q}' → ${e?.response?.status} ${e?.response?.data?.error?.message || e?.message}`)
+      }
+
+      // 2) Fallback /search
+      try {
+        this.logger.log(`STEP fallback /search?type=adinterest '${q}'`)
+        const { data } = await fb.get(`/search`, {
+          params: { q, type: 'adinterest', limit: 25, locale: 'en_US' },
+          timeout: 15000,
+        })
+        const rows: any[] = Array.isArray(data?.data) ? data.data : []
+        const onlyInterests = rows.filter((r) => Array.isArray(r?.path) && r.path[0] === 'Interests')
+        results.push(...onlyInterests.map((r) => ({ id: String(r.id), name: r.name })))
+      } catch (e: any) {
+        this.logger.warn(`[search?type=adinterest] '${q}' → ${e?.response?.status} ${e?.response?.data?.error?.message || e?.message}`)
+      }
     }
-    return results
+
+    // Dedupe theo id
+    return Array.from(new Map(results.map((r) => [r.id, r])).values())
   }
 
   private async validateBehaviors(
@@ -240,14 +305,15 @@ export class FacebookAdsInternalService {
       try {
         this.logger.log(`STEP validateBehavior ${b.id} → GET /${adAccountId}/targetingsearch`)
         const { data } = await fb.get(`/${adAccountId}/targetingsearch`, {
-          params: { type: 'adTargetingCategory', class: 'behaviors', q: b.name || '', limit: 50 },
+          params: { type: 'adTargetingCategory', class: 'behaviors', q: b.name || '', limit: 50, locale: 'en_US' },
           timeout: 20_000,
         })
         const rows: any[] = Array.isArray(data?.data) ? data.data : []
         const found = rows.find((r: any) => String(r?.id) === String(b.id))
         if (found) okList.push({ id: String(b.id), name: b.name || found.name })
-      } catch {
-        return []
+      } catch (e: any) {
+        this.logger.warn(`[validateBehaviors] ${b.id} failed: ${e?.response?.data?.error?.message || e.message}`)
+        continue
       }
     }
     return okList
@@ -288,7 +354,7 @@ export class FacebookAdsInternalService {
       ...placements,
       targeting_automation: { advantage_audience: dto.aiTargeting ? 1 : 0 },
     }
-    const targeting: TargetingSpec = { ...targetingBase }
+    let targeting: TargetingSpec = { ...targetingBase }
 
     // AGE/GENDER
     if (Array.isArray(dto.ageRange) && dto.ageRange.length === 2) {
@@ -330,10 +396,15 @@ export class FacebookAdsInternalService {
     const needLookup = [...new Set([...manualInterestNames, ...aiKeywords, ...viInterestNames])].slice(0, 30)
     if (needLookup.length > 0) {
       const lookedUp = await this.searchInterestsByNames(needLookup, fb, adAccountId)
-      if (lookedUp.length) mergeFlex(targeting, { interests: lookedUp.slice(0, 10) })
+      if (lookedUp.length) {
+        targeting = mergeFlex(targeting, { interests: lookedUp }) // GÁN LẠI
+        this.logger.log(`[Targeting] merged interests=${lookedUp.length}`)
+      } else {
+        this.logger.warn('[Targeting] No INTERESTS found after lookup.')
+      }
     }
 
-    // BEHAVIORS
+    // BEHAVIORS (không áp cho MESSAGE)
     let rawBehaviors: Array<{ id: string; name?: string }> = []
     if (Array.isArray(dto?.targetingAI?.behaviors)) {
       rawBehaviors = rawBehaviors.concat(
@@ -350,15 +421,25 @@ export class FacebookAdsInternalService {
     )
 
     if (dto.goal !== AdsGoal.MESSAGE && rawBehaviors.length) {
-      const unique = Array.from(new Map(rawBehaviors.map((b) => [b.id, b])).values()).slice(0, 10)
+      const unique = Array.from(new Map(rawBehaviors.map((b) => [b.id, b])).values())
       const valid = await this.validateBehaviors(unique, adAccountId, fb)
-      if (valid.length) mergeFlex(targeting, { behaviors: valid })
+      if (valid.length) {
+        targeting = mergeFlex(targeting, { behaviors: valid }) // GÁN LẠI
+        this.logger.log(`[Targeting] merged behaviors=${valid.length}`)
+      } else {
+        this.logger.warn('[Targeting] No valid BEHAVIORS after validate.')
+      }
     }
 
     // --- AUDIENCE SAFETY CHECK ---
-    let totalInterests = targeting.flexible_spec?.map((fs) => fs.interests?.length || 0).reduce((a, b) => a + b, 0) || 0
+    const totalInterests =
+      targeting.flexible_spec?.map((fs) => fs.interests?.length || 0).reduce((a, b) => a + b, 0) || 0
 
     const userFixedAge = typeof targeting.age_min === 'number' || typeof targeting.age_max === 'number'
+
+    this.logger.log(
+      `[Targeting] summary age_min=${targeting.age_min ?? '-'} age_max=${targeting.age_max ?? '-'} interestsTotal=${totalInterests}`,
+    )
 
     if (userFixedAge) {
       this.logger.warn('[FacebookAdsService] User fixed age range → disable Advantage Audience')
@@ -370,21 +451,8 @@ export class FacebookAdsInternalService {
       this.logger.warn(`[FacebookAdsService] ⚠️ Too few interests (${totalInterests}) → asking AI for fallback`)
       const fallback = await this.suggestFallbackInterests(dto, fb)
       if (fallback.length) {
-        mergeFlex(targeting, { interests: fallback })
+        targeting = mergeFlex(targeting, { interests: fallback }) // GÁN LẠI
       }
-    }
-
-    // --- FINAL FILTER: remove niche interests ---
-    if (targeting.flexible_spec) {
-      targeting.flexible_spec = targeting.flexible_spec
-        .map((fs) => {
-          if (!fs.interests) return fs
-          return {
-            ...fs,
-            interests: fs.interests.filter((i: any) => !/film|movie|show|penguin|cartoon/i.test(i.name)),
-          }
-        })
-        .filter((fs) => fs.interests && fs.interests.length > 0)
     }
 
     // --- FINAL GEO CHECK ---
@@ -403,7 +471,10 @@ export class FacebookAdsInternalService {
       }
     }
 
-    return normalizeTargetingForCreation(targeting)
+    // Chốt chặn: LOẠI field lạ (vd path) trước khi trả về
+    targeting = this.sanitizeFlexibleSpecStrict(targeting)
+
+    return targeting // normalize sẽ thực hiện lúc POST adset
   }
 
   private async suggestFallbackInterests(dto: AnyDto, fb: AxiosInstance): Promise<Array<{ id: string; name: string }>> {
@@ -442,7 +513,7 @@ export class FacebookAdsInternalService {
         : []
       if (!names.length) return []
       this.logger.log(`[FacebookAdsService] ✅ GPT fallback interests: ${JSON.stringify(names)}`)
-      // Không có adAccountId ở đây → skip lookup nếu không có
+      // Ở đây không tra id → trả rỗng để không dùng raw name
       return []
     } catch (e: any) {
       this.logger.error(`❌ suggestFallbackInterests error: ${e.message}`)
@@ -807,7 +878,7 @@ export class FacebookAdsInternalService {
         payload.daily_budget = Math.max(100, Math.trunc(Number(dto.campaignDailyBudget)))
       } else {
         // ABO → BẮT BUỘC trường này để tránh lỗi 4834011
-        const isSharing = !!dto.adsetBudgetSharing // bạn có thể cho false mặc định
+        const isSharing = !!dto.adsetBudgetSharing
         payload.is_adset_budget_sharing_enabled = String(isSharing) // 'true' | 'false'
       }
 
@@ -845,6 +916,8 @@ export class FacebookAdsInternalService {
 
     this.logger.log(`STEP createAdSet: build targeting`)
     let targetingPayload = await this.buildTargeting(dto, adAccountId, fb)
+    // Chốt chặn lần nữa rồi normalize
+    targetingPayload = this.sanitizeFlexibleSpecStrict(targetingPayload)
     targetingPayload = normalizeTargetingForCreation(targetingPayload)
     this.logger.log(`STEP createAdSet: targeting built: ${JSON.stringify(targetingPayload)}`)
 
@@ -892,7 +965,9 @@ export class FacebookAdsInternalService {
 
     const makeRequest = async (tp: any, goal: string, campId: string) => {
       this.logger.log(`STEP createAdSet → POST /${adAccountId}/adsets goal=${goal} camp=${campId}`)
-      const body: any = { ...payloadBase, optimization_goal: goal, campaign_id: campId, targeting: JSON.stringify(tp) }
+      // đảm bảo không có path ở đây
+      const sanitized = this.sanitizeFlexibleSpecStrict(tp)
+      const body: any = { ...payloadBase, optimization_goal: goal, campaign_id: campId, targeting: JSON.stringify(sanitized) }
       if (isMessage) body.destination_type = destination
       if (pageId) body.promoted_object = JSON.stringify(basePromotedObject)
 
@@ -912,7 +987,23 @@ export class FacebookAdsInternalService {
       const msg = error?.error_user_msg || error?.message || ''
       const blame = error?.error_data?.blame_field || error?.error_data?.blame_field_specs
 
-      // behaviors invalid → bỏ behaviors, GIỮ interests
+      // INTERESTS invalid / chứa field lạ (path)
+      if (sub === 1487079 && (/Invalid data for field interests/i.test(msg) || /Normalization.+path/i.test(msg))) {
+        const patched = this.sanitizeFlexibleSpecStrict(currentPayload) // loại path & field lạ
+        // nếu còn interests, giữ top-10 mỗi group cho chắc (Meta đôi khi kén)
+        if (Array.isArray(patched.flexible_spec)) {
+          patched.flexible_spec = patched.flexible_spec.map((g: any) => {
+            if (Array.isArray(g.interests)) g.interests = this.sanitizeInterestArray(g.interests).slice(0, 10)
+            return g
+          })
+        }
+        this.logger.warn('⚠️ Invalid interests / path present → sanitized & retry')
+        const res0 = await makeRequest(patched, goal, campId)
+        this.logger.log(`✅ AdSet created (cleaned interests): ${res0.data.id}`)
+        return { id: res0.data.id }
+      }
+
+      // BEHAVIORS invalid → bỏ behaviors, GIỮ interests
       if (sub === 1487079 || /behaviors?.+invalid/i.test(msg)) {
         if (currentPayload?.flexible_spec) {
           const flex = (currentPayload.flexible_spec as any[])
@@ -923,7 +1014,8 @@ export class FacebookAdsInternalService {
               }
               return fs
             })
-            .filter((fs) => Object.keys(fs).length)
+            .map((g) => this.sanitizeFlexibleSpecStrict({ flexible_spec: [g] }).flexible_spec?.[0])
+            .filter((fs) => fs && Object.keys(fs).length)
           const patched = { ...currentPayload, flexible_spec: flex }
           this.logger.warn('⚠️ Behaviors invalid → retry WITHOUT behaviors (keep interests)')
           const res2 = await makeRequest(patched, goal, campId)
@@ -1001,7 +1093,7 @@ export class FacebookAdsInternalService {
         )
         if (hasInterests) {
           const flex = patched.flexible_spec.map((fs: any) => {
-            if (Array.isArray(fs.interests)) return { interests: fs.interests.slice(0, 5) }
+            if (Array.isArray(fs.interests)) return { interests: this.sanitizeInterestArray(fs.interests).slice(0, 5) }
             return fs
           })
           const patched2 = { ...patched, flexible_spec: flex }
@@ -1107,7 +1199,7 @@ export class FacebookAdsInternalService {
       start_time: toIsoNoMs(dto.startTime),
       end_time: toIsoNoMs(dto.endTime),
       status: 'PAUSED',
-      targeting: JSON.stringify(normalizeTargetingForCreation(targeting)),
+      targeting: JSON.stringify(normalizeTargetingForCreation(this.sanitizeFlexibleSpecStrict(targeting))),
       promoted_object: JSON.stringify({ page_id: pageId }),
     }
 

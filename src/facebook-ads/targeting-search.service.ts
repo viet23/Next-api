@@ -4,8 +4,6 @@ import axios, { AxiosInstance } from 'axios'
 import { createHmac } from 'node:crypto'
 
 /* ====================== FB client helpers ====================== */
-const isServer = typeof window === 'undefined'
-
 function buildAppSecretProof(token?: string) {
   const secret = process.env.FB_APP_SECRET
   if (!token || !secret) return undefined
@@ -14,17 +12,15 @@ function buildAppSecretProof(token?: string) {
 
 function createFbGraphClient(opts: {
   token: string
-  cookie?: string
   version?: string
   timeoutMs?: number
 }): AxiosInstance {
-  const { token, cookie, version = 'v23.0', timeoutMs = 20_000 } = opts
+  const { token, version = 'v23.0', timeoutMs = 20_000 } = opts
 
   const headers: Record<string, string> = {
     Accept: 'application/json',
     Authorization: `Bearer ${token}`,
   }
-  if (isServer && cookie) headers.Cookie = cookie
 
   const client = axios.create({
     baseURL: `https://graph.facebook.com/${version}`,
@@ -71,7 +67,7 @@ export interface SelectedLocation {
   country_code?: string
   latitude?: number
   longitude?: number
-  radius?: number // theo đơn vị client truyền
+  radius?: number
   radiusUnit?: 'm' | 'km' | 'mi'
   distance_unit?: 'kilometer' | 'mile'
 }
@@ -81,19 +77,18 @@ export interface SelectedLocation {
 export class TargetingSearchService {
   private readonly logger = new Logger(TargetingSearchService.name)
 
-  /** Luôn yêu cầu truyền token của user (controller truyền vào). Không fallback ENV để đảm bảo đúng user. */
-  private fb(version = 'v23.0', token?: string, cookie?: string) {
-    const useToken = token || ''
-    if (!useToken) {
+  /** Yêu cầu luôn phải truyền token của user (controller truyền vào). */
+  private fb(version = 'v23.0', token?: string) {
+    if (!token) {
       throw new BadRequestException('Thiếu access token: cần user.accessTokenUser.')
     }
-    return createFbGraphClient({ token: useToken, cookie, version })
+    return createFbGraphClient({ token, version })
   }
 
   /** Gọi Graph API: /search?type=adgeolocation (tìm địa điểm giống Ads Manager) */
   async search(
     params: TargetingSearchParams,
-    opts?: { token?: string; cookie?: string }, // truyền accessTokenUser/cookie của user đang đăng nhập
+    opts?: { token?: string },
   ) {
     const {
       q,
@@ -106,7 +101,7 @@ export class TargetingSearchService {
     const qFinal = String(q || '').trim()
     if (!qFinal) return []
 
-    const fb = this.fb(version, opts?.token, opts?.cookie)
+    const fb = this.fb(version, opts?.token)
     this.logger.log(`TargetingSearch → GET /search type=adgeolocation q="${qFinal}" country=${country_code}`)
 
     const { data } = await fb.get('/search', {
@@ -143,7 +138,7 @@ export class TargetingSearchService {
     })
   }
 
-  /** Quy đổi bán kính về mile (1–50) (khớp với logic tạo ad) */
+  /** Quy đổi bán kính về mile (1–50) */
   private normalizeRadiusToMiles(value?: number, unit?: 'm' | 'km' | 'mi'): number | undefined {
     if (typeof value !== 'number' || isNaN(value) || value <= 0) return undefined
     let miles: number
