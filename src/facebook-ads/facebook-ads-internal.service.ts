@@ -19,9 +19,7 @@ import {
   mapAdsetOptimization,
   mapCampaignObjective,
   mapGender,
-  mapPlacements,
   mergeFlex, // OR-merge 1 group, dedupe theo id, KHÔNG giới hạn số lượng
-  normalizePlacements,
   normalizeRadiusToMiles,
   normalizeTargetingForCreation,
   validateIsoTime,
@@ -73,7 +71,7 @@ export class FacebookAdsInternalService {
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(FacebookAd) private readonly facebookAdRepo: Repository<FacebookAd>,
     @InjectRepository(FacebookCampaign) private readonly facebookCampaignRepo: Repository<FacebookCampaign>,
-  ) {}
+  ) { }
 
   private readonly logger = new Logger(FacebookAdsInternalService.name)
 
@@ -96,16 +94,16 @@ export class FacebookAdsInternalService {
         : undefined
     this.logger.error(
       'Request info (no token): ' +
-        JSON.stringify(
-          {
-            url: cfg.url,
-            method: cfg.method,
-            params: cfg.params,
-            dataPreview: preview,
-          },
-          null,
-          2,
-        ),
+      JSON.stringify(
+        {
+          url: cfg.url,
+          method: cfg.method,
+          params: cfg.params,
+          dataPreview: preview,
+        },
+        null,
+        2,
+      ),
     )
   }
 
@@ -329,25 +327,24 @@ export class FacebookAdsInternalService {
       geo_locations =
         dto.location && typeof clampedRadius === 'number'
           ? {
-              custom_locations: [
-                {
-                  latitude: dto.location.lat,
-                  longitude: dto.location.lng,
-                  radius: clampedRadius,
-                  distance_unit: 'mile',
-                },
-              ],
-            }
+            custom_locations: [
+              {
+                latitude: dto.location.lat,
+                longitude: dto.location.lng,
+                radius: clampedRadius,
+                distance_unit: 'mile',
+              },
+            ],
+          }
           : { countries: ['VN'] }
     }
 
-    // PLACEMENTS
-    const disableInstagram = dto.goal === AdsGoal.ENGAGEMENT && !dto.instagramActorId
-    const manualPlacements = normalizePlacements(dto.placements)
-    const placements = mapPlacements(dto.goal, {
-      disableInstagram,
-      manual: manualPlacements,
-    })
+    // ⚙️ Ép cứng placements chỉ chạy 4 vị trí mong muốn
+    const placements = {
+      publisher_platforms: ['facebook', 'messenger'],
+      facebook_positions: ['feed', 'profile_feed', 'search'],
+      messenger_positions: ['messenger_home'],
+    }
 
     const targetingBase: TargetingSpec = {
       geo_locations,
@@ -542,7 +539,7 @@ export class FacebookAdsInternalService {
       })
       const hash = parseHash(res.data)
       if (hash) return hash
-    } catch {}
+    } catch { }
 
     try {
       this.logger.log(`STEP uploadImage multipart → GET ${imageUrl}`)
@@ -1085,7 +1082,7 @@ export class FacebookAdsInternalService {
             const resB1 = await makeRequest(patched, goal, campId)
             this.logger.log(`✅ AdSet created (no behaviors): ${resB1.data.id}`)
             return { id: resB1.data.id }
-          } catch {}
+          } catch { }
         }
 
         const hasInterests = patched?.flexible_spec?.some(
@@ -1102,7 +1099,7 @@ export class FacebookAdsInternalService {
             const resB2 = await makeRequest(patched2, goal, campId)
             this.logger.log(`✅ AdSet created (top-5 interests): ${resB2.data.id}`)
             return { id: resB2.data.id }
-          } catch {}
+          } catch { }
         }
 
         if (patched?.flexible_spec) {
@@ -1513,8 +1510,8 @@ export class FacebookAdsInternalService {
         const collect = (tg: any) => {
           if (!tg) return
           const geo = tg.geo_locations || {}
-          ;(geo.countries || []).forEach((c: string) => countries.add(c))
-          ;(geo.cities || []).forEach((c: any) => cities.push({ key: String(c.key ?? c.name ?? ''), name: c.name }))
+            ; (geo.countries || []).forEach((c: string) => countries.add(c))
+            ; (geo.cities || []).forEach((c: any) => cities.push({ key: String(c.key ?? c.name ?? ''), name: c.name }))
 
           if (Array.isArray(geo.custom_locations)) {
             for (const loc of geo.custom_locations) {
@@ -1530,7 +1527,7 @@ export class FacebookAdsInternalService {
 
           if (typeof tg.age_min === 'number') age.min = Math.min(age.min, tg.age_min)
           if (typeof tg.age_max === 'number') age.max = Math.max(age.max, tg.age_max)
-          ;(tg.genders || []).forEach((g: number) => genders.add(g))
+            ; (tg.genders || []).forEach((g: number) => genders.add(g))
 
           if (Array.isArray(tg.interests)) {
             tg.interests.forEach((i: any) => {

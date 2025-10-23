@@ -8,49 +8,64 @@ import { Repository } from 'typeorm'
 export class SyncFacebookService {
   private readonly logger = new Logger(SyncFacebookService.name)
   private readonly graphVersion = 'v24.0' // dễ đổi khi cần
+
   constructor(@InjectRepository(User) private readonly userRepo: Repository<User>) {}
 
   async getUserAccounts(user: User): Promise<any> {
+    const startTime = Date.now()
+    this.logger.debug(`==== START getUserAccounts for user: ${user.email} ====`)
     try {
+      this.logger.debug(`Step 1: Fetching user from DB by email=${user.email}`)
       const existed = await this.userRepo.findOne({ where: { email: user.email } })
+      if (!existed) {
+        this.logger.warn(`User ${user.email} not found in database`)
+        return { success: false, error: 'User not found' }
+      }
+
       const accessToken = existed?.internalUserAccessToken
       if (!accessToken) {
         this.logger.warn(`User ${user.email} does not have a Facebook User Access Token`)
         return { success: false, error: 'No Facebook User Access Token' }
       }
+
       const url = `https://graph.facebook.com/${this.graphVersion}/me/accounts`
+      this.logger.debug(`Step 2: Calling Facebook Graph API: ${url}`)
+
+      const params = {
+        access_token: accessToken,
+        debug: 'all',
+        format: 'json',
+        method: 'get',
+        origin_graph_explorer: '1',
+        pretty: '0',
+        suppress_http_code: '1',
+        transport: 'cors',
+      }
+
+      this.logger.verbose(`Request params: ${JSON.stringify(params, null, 2)}`)
 
       const response = await axios.get(url, {
-        params: {
-          access_token: accessToken,
-          debug: 'all',
-          format: 'json',
-          method: 'get',
-          origin_graph_explorer: '1',
-          pretty: '0',
-          suppress_http_code: '1',
-          transport: 'cors',
-        },
+        params,
         headers: {
           accept: '*/*',
           'content-type': 'application/x-www-form-urlencoded',
-          // user-agent optional - server side can identify itself
           'user-agent': 'NestJS-FB-Sync-Service',
         },
         timeout: 10000,
       })
 
-      // Nếu Facebook trả về lỗi trong body, axios vẫn trả status 200 trong một số chế độ;
-      // Tốt nhất kiểm tra cấu trúc trả về
+      this.logger.debug(`Step 3: Received response from Facebook API (status=${response.status})`)
+      this.logger.verbose(`Response data: ${JSON.stringify(response.data, null, 2)}`)
+
       const data = response.data
 
-      // Nếu API trả lỗi object { error: { ... } }
+      // Nếu Facebook trả về lỗi trong body
       if (data?.error) {
-        this.logger.error('Facebook Graph API returned error', JSON.stringify(data.error))
+        this.logger.error(`Facebook Graph API returned error for user ${user.email}: ${JSON.stringify(data.error)}`)
         return { success: false, error: data.error }
       }
 
-      // Chuẩn hóa danh sách pages: id, name, access_token, category, tasks
+      this.logger.debug('Step 4: Parsing pages data from Facebook response')
       const pages = (data?.data || []).map((p: any) => ({
         id: p.id,
         name: p.name,
@@ -59,17 +74,25 @@ export class SyncFacebookService {
         tasks: p.tasks,
       }))
 
-      // tìm page có id trùng với existed.idPage (so sánh bằng String để tránh khác kiểu)
+      this.logger.verbose(`Parsed ${pages.length} pages for user ${user.email}`)
+
+      // tìm page có id trùng với existed.idPage
       const matchedPage = pages.find((pg) => String(pg.id) === String(existed.idPage))
+      if (matchedPage) {
+        this.logger.debug(`Matched page found: ${matchedPage.name} (${matchedPage.id})`)
+      } else {
+        this.logger.warn(
+          `No matching page found for existed.idPage=${existed.idPage}. Will set internalPageAccessToken=null.`,
+        )
+      }
 
-      // nếu tìm thấy thì lấy token của page đó, không thì để null
       existed.internalPageAccessToken = matchedPage ? matchedPage.page_access_token : null
-
-      // lưu toàn bộ thông tin pages để tham chiếu sau này
       existed.internalPageInformation = pages
-      existed.isInternal = true // đánh dấu đã sync facebook
+      existed.isInternal = true
 
+      this.logger.debug('Step 5: Saving updated user entity to database...')
       await this.userRepo.save(existed)
+      this.logger.debug('User entity updated successfully.')
 
       if (matchedPage) {
         this.logger.log(
@@ -77,18 +100,17 @@ export class SyncFacebookService {
         )
       } else {
         this.logger.warn(
-          `Fetched ${pages.length} pages for user ${user.email}. No matching page for existed.idPage=${existed.idPage} — internalPageAccessToken set to null.`,
+          `Fetched ${pages.length} pages for user ${user.email}. No matching page for existed.idPage=${existed.idPage}.`,
         )
       }
 
-      // trả thêm paging nếu cần
       const paging = data?.paging ?? null
-
+      const duration = Date.now() - startTime
+      this.logger.debug(`==== END getUserAccounts (${duration}ms) for user ${user.email} ====`)
       return { success: true, pages, paging }
     } catch (err: any) {
-      // Axios error handling
       const msg = err?.response?.data || err?.message || err
-      this.logger.error('Failed to call Facebook Graph API', JSON.stringify(msg))
+      this.logger.error(`Failed to call Facebook Graph API for ${user.email}: ${JSON.stringify(msg)}`)
       return { success: false, error: msg }
     }
   }
