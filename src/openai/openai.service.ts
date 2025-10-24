@@ -55,6 +55,7 @@ export class OpenaiService {
   /** 🟢 Phân tích targeting → luôn trả JSON array */
   async analyzeTargeting(prompt: string, user: User) {
     console.log(`user in analyzeTargeting-------`, user)
+    console.log(`user in analyzeTargeting prompt-------`, prompt)
 
     const userData = await this.userRepo
       .createQueryBuilder('user')
