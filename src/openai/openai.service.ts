@@ -223,7 +223,6 @@ export class OpenaiService {
               role: 'system',
               content: `Bạn là máy phân tích targeting. 
 Chỉ trả về JSON HỢP LỆ (DUY NHẤT MỘT MẢNG). 
-Các key phải viết bằng tiếng Việt có dấu, đúng chính tả. 
 Không trả thêm bất kỳ ký tự nào khác.`,
             },
             { role: 'user', content: detailedPrompt },
