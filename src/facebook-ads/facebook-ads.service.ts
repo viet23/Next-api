@@ -1361,18 +1361,18 @@ Hãy gợi ý 5 interest broad phổ biến nhất, dễ target, liên quan sả
     let nextParams: Record<string, any> = { ...baseParams }
 
     try {
-      while (nextUrl) {
-        this.logger.log(`STEP listAds paginate → GET ${nextUrl} with params?=${Object.keys(nextParams).length > 0}`)
-        const { data } = await fb.get(nextUrl, { params: nextParams, timeout: 30_000 })
-        if (Array.isArray(data?.data)) all.push(...data.data)
-        const nxt = data?.paging?.next
-        if (nxt) {
-          nextUrl = nxt
-          nextParams = {}
-        } else {
-          nextUrl = null
-        }
-      }
+      // while (nextUrl) {
+      //   this.logger.log(`STEP listAds paginate → GET ${nextUrl} with params?=${Object.keys(nextParams).length > 0}`)
+      //   const { data } = await fb.get(nextUrl, { params: nextParams, timeout: 30_000 })
+      //   if (Array.isArray(data?.data)) all.push(...data.data)
+      //   const nxt = data?.paging?.next
+      //   if (nxt) {
+      //     nextUrl = nxt
+      //     nextParams = {}
+      //   } else {
+      //     nextUrl = null
+      //   }
+      // }
 
       if (!all.length) {
         this.logger.log(`STEP listAds: no ads found`)
