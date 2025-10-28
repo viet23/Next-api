@@ -59,7 +59,7 @@ async function bootstrap() {
   await seedFreeSubscriptions()
 
   // 👉 Cứ 5 phút chạy lại 1 lần (30 * 60 * 1000 ms)
-  setInterval(seedFreeSubscriptions, 5 * 60 * 1000)
+  setInterval(seedFreeSubscriptions, 30 * 60 * 1000)
 
   // setInterval(seedFreeSubscriptions, 30 * 1000);
 

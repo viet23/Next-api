@@ -77,6 +77,18 @@ function buildZeroRowForAd(adId: string, range?: { since?: string; until?: strin
   }
 }
 
+/** Lấy giá trị action theo danh sách key chính xác */
+function pickAction(actions: any[], keys: string[]): number {
+  if (!Array.isArray(actions)) return 0
+  const set = new Set(keys)
+  let total = 0
+  for (const a of actions) {
+    const t = String(a?.action_type || '')
+    if (set.has(t)) total += toNumber(a?.value ?? a?.count ?? 0)
+  }
+  return total
+}
+
 /** ================== INTERNAL helpers (gom call, no cookie) ================== */
 async function createInsightsJob(params: {
   client: AxiosInstance
@@ -288,7 +300,7 @@ async function fetchAllAdStatusesViaAccount(
             : 'PAUSED'
       statusMap.set(id, st)
     }
-    const next = res?.data?.paging?.next
+  const next = res?.data?.paging?.next
     url = next ? next.replace('https://graph.facebook.com/v23.0', '') : ''
   }
   return statusMap
@@ -349,6 +361,12 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
     const timeIncrement: TimeIncrement = 'all_days' // muốn theo ngày: đổi thành 1
     const actionReportTime: 'impression' | 'conversion' = 'conversion'
     const useAccountAttribution: boolean = true
+
+    // Khóa action type cho "cuộc trò chuyện bắt đầu"
+    const CONV_STARTED_KEYS = [
+      'onsite_conversion.messaging_conversation_started_7d',
+      'onsite_conversion.messaging_conversation_started', // fallback
+    ]
 
     if (isInternal) {
       /** ===== INTERNAL: gom call + lấy TẤT CẢ ad, fill 0 nếu thiếu insights ===== */
@@ -472,18 +490,10 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         const ctr = toNumber(fb.ctr)
         const cpm = toNumber(fb.cpm)
 
-        let messages = 0
-        const actions = fb.actions
-        if (Array.isArray(actions)) {
-          for (const a of actions) {
-            const t = a?.action_type ? String(a.action_type) : ''
-            if (/(message|messag|conversation|onsite_conversion|omni_message)/i.test(t)) {
-              messages += toNumber(a.value ?? a.count ?? 0)
-            }
-          }
-        }
+        // Số cuộc trò chuyện bắt đầu (unique)
+        const conversations = pickAction(fb.actions || [], CONV_STARTED_KEYS)
 
-        const costPerMessageNumber = messages > 0 ? spendNumber / messages : 0
+        const costPerConversationNumber = conversations > 0 ? spendNumber / conversations : 0
         const costPerClickNumber = clicks > 0 ? spendNumber / clicks : 0
 
         const status = statusByAdId.get(adId) || fromAccount?.effective_status || fromAccount?.status || 'PAUSED'
@@ -501,9 +511,9 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             spendNumber,
             ctr: format2(ctr),
             cpm: formatCurrency(format2(cpm)),
-            messages,
-            costPerMessage: formatCurrency(format2(costPerMessageNumber)),
-            costPerMessageNumber,
+            conversations,
+            costPerConversation: formatCurrency(format2(costPerConversationNumber)),
+            costPerConversationNumber,
             costPerClick: formatCurrency(format2(costPerClickNumber)),
             costPerClickNumber,
           },
@@ -524,13 +534,13 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
               acc.impressions += toNumber(a.data.impressions)
               acc.clicks += toNumber(a.data.clicks)
               acc.spend += toNumber(a.data.spendNumber ?? a.data.spend ?? 0)
-              acc.messages += toNumber(a.data.messages ?? 0)
+              acc.conversations += toNumber((a.data as any).conversations ?? 0)
               return acc
             },
-            { impressions: 0, clicks: 0, spend: 0, messages: 0 },
+            { impressions: 0, clicks: 0, spend: 0, conversations: 0 },
           )
 
-          const avgCostPerMessageNumber = summary.messages > 0 ? summary.spend / summary.messages : 0
+          const avgCostPerConversationNumber = summary.conversations > 0 ? summary.spend / summary.conversations : 0
           const avgCostPerClickNumber = summary.clicks > 0 ? summary.spend / summary.clicks : 0
 
           return {
@@ -548,9 +558,9 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
               clicks: summary.clicks,
               spend: formatCurrency(summary.spend),
               spendNumber: summary.spend,
-              messages: summary.messages,
-              avgCostPerMessage: formatCurrency(format2(avgCostPerMessageNumber)),
-              avgCostPerMessageNumber,
+              conversations: summary.conversations,
+              avgCostPerConversation: formatCurrency(format2(avgCostPerConversationNumber)),
+              avgCostPerConversationNumber,
               avgCostPerClick: formatCurrency(format2(avgCostPerClickNumber)),
               avgCostPerClickNumber,
             },
@@ -568,17 +578,17 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             acc.impressions += toNumber(a.data.impressions)
             acc.clicks += toNumber(a.data.clicks)
             acc.spend += toNumber(a.data.spendNumber ?? a.data.spend ?? 0)
-            acc.messages += toNumber(a.data.messages ?? 0)
+            acc.conversations += toNumber((a.data as any).conversations ?? 0)
             return acc
           },
-          { impressions: 0, clicks: 0, spend: 0, messages: 0 },
+          { impressions: 0, clicks: 0, spend: 0, conversations: 0 },
         )
         const earliestCreatedAt = ads.reduce((earliest, a) => {
           if (!earliest) return a.createdAt as any
           return new Date(a.createdAt || 0) < new Date(earliest) ? a.createdAt : earliest
         }, null as any)
 
-        const avgCostPerMessageNumber = summary.messages > 0 ? summary.spend / summary.messages : 0
+        const avgCostPerConversationNumber = summary.conversations > 0 ? summary.spend / summary.conversations : 0
         const avgCostPerClickNumber = summary.clicks > 0 ? summary.spend / summary.clicks : 0
 
         syntheticCampaign = {
@@ -596,9 +606,9 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             clicks: summary.clicks,
             spend: formatCurrency(summary.spend),
             spendNumber: summary.spend,
-            messages: summary.messages,
-            avgCostPerMessage: formatCurrency(format2(avgCostPerMessageNumber)),
-            avgCostPerMessageNumber,
+            conversations: summary.conversations,
+            avgCostPerConversation: formatCurrency(format2(avgCostPerConversationNumber)),
+            avgCostPerConversationNumber,
             avgCostPerClick: formatCurrency(format2(avgCostPerClickNumber)),
             avgCostPerClickNumber,
           },
@@ -627,9 +637,9 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             spendNumber: 0,
             ctr: '0.00',
             cpm: '0',
-            messages: 0,
-            costPerMessage: '0',
-            costPerMessageNumber: 0,
+            conversations: 0,
+            costPerConversation: '0',
+            costPerConversationNumber: 0,
             costPerClick: '0',
             costPerClickNumber: 0,
           },
@@ -669,17 +679,10 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         const ctr = toNumber(fb.ctr)
         const cpm = toNumber(fb.cpm)
 
-        let messages = 0
-        if (Array.isArray(fb.actions)) {
-          for (const a of fb.actions) {
-            const atype = a?.action_type ? String(a.action_type) : ''
-            if (/(message|messag|conversation|onsite_conversion|omni_message)/i.test(atype)) {
-              messages += toNumber(a.value ?? a.count ?? 0)
-            }
-          }
-        }
+        // Đếm conversation started
+        const conversations = pickAction(fb.actions || [], CONV_STARTED_KEYS)
 
-        const costPerMessageNumber = messages > 0 ? spendNumber / messages : 0
+        const costPerConversationNumber = conversations > 0 ? spendNumber / conversations : 0
         const costPerClickNumber = clicks > 0 ? spendNumber / clicks : 0
 
         return {
@@ -691,9 +694,9 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             spendNumber,
             ctr: format2(ctr),
             cpm: formatCurrency(format2(cpm)),
-            messages,
-            costPerMessage: formatCurrency(format2(costPerMessageNumber)),
-            costPerMessageNumber,
+            conversations,
+            costPerConversation: formatCurrency(format2(costPerConversationNumber)),
+            costPerConversationNumber,
             costPerClick: formatCurrency(format2(costPerClickNumber)),
             costPerClickNumber,
           },
@@ -712,9 +715,9 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             spendNumber: 0,
             ctr: '0.00',
             cpm: '0',
-            messages: 0,
-            costPerMessage: '0',
-            costPerMessageNumber: 0,
+            conversations: 0,
+            costPerConversation: '0',
+            costPerConversationNumber: 0,
             costPerClick: '0',
             costPerClickNumber: 0,
           },
@@ -745,13 +748,13 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             acc.clicks += toNumber(a.data.clicks)
             const spendNum = toNumber(a.data.spendNumber ?? a.data.spend ?? 0)
             acc.spend += spendNum
-            acc.messages += toNumber(a.data.messages ?? 0)
+            acc.conversations += toNumber((a.data as any).conversations ?? 0)
             return acc
           },
-          { impressions: 0, clicks: 0, spend: 0, messages: 0 },
+          { impressions: 0, clicks: 0, spend: 0, conversations: 0 },
         )
 
-        const avgCostPerMessageNumber = summary.messages > 0 ? summary.spend / summary.messages : 0
+        const avgCostPerConversationNumber = summary.conversations > 0 ? summary.spend / summary.conversations : 0
         const avgCostPerClickNumber = summary.clicks > 0 ? summary.spend / summary.clicks : 0
 
         return {
@@ -769,9 +772,9 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
             clicks: summary.clicks,
             spend: formatCurrency(summary.spend),
             spendNumber: summary.spend,
-            messages: summary.messages,
-            avgCostPerMessage: formatCurrency(format2(avgCostPerMessageNumber)),
-            avgCostPerMessageNumber,
+            conversations: summary.conversations,
+            avgCostPerConversation: formatCurrency(format2(avgCostPerConversationNumber)),
+            avgCostPerConversationNumber,
             avgCostPerClick: formatCurrency(format2(avgCostPerClickNumber)),
             avgCostPerClickNumber,
           },
@@ -813,10 +816,10 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           acc.clicks += toNumber(a.data.clicks)
           const spendNum = toNumber(a.data.spendNumber ?? a.data.spend ?? 0)
           acc.spend += spendNum
-          acc.messages += toNumber(a.data.messages ?? 0)
+          acc.conversations += toNumber((a.data as any).conversations ?? 0)
           return acc
         },
-        { impressions: 0, clicks: 0, spend: 0, messages: 0 },
+        { impressions: 0, clicks: 0, spend: 0, conversations: 0 },
       )
 
       const earliestCreatedAt = adRealtime.reduce((earliest, a) => {
@@ -824,7 +827,7 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
         return new Date(a.createdAt) < new Date(earliest) ? a.createdAt : earliest
       }, null as any)
 
-      const avgCostPerMessageNumber = summary.messages > 0 ? summary.spend / summary.messages : 0
+      const avgCostPerConversationNumber = summary.conversations > 0 ? summary.spend / summary.conversations : 0
       const avgCostPerClickNumber = summary.clicks > 0 ? summary.spend / summary.clicks : 0
 
       syntheticCampaign = {
@@ -842,9 +845,9 @@ export class GetFacebookAdsHistoryQueryHandler implements IQueryHandler<GetFaceb
           clicks: summary.clicks,
           spend: formatCurrency(summary.spend),
           spendNumber: summary.spend,
-          messages: summary.messages,
-          avgCostPerMessage: formatCurrency(format2(avgCostPerMessageNumber)),
-          avgCostPerMessageNumber,
+          conversations: summary.conversations,
+          avgCostPerConversation: formatCurrency(format2(avgCostPerConversationNumber)),
+          avgCostPerConversationNumber,
           avgCostPerClick: formatCurrency(format2(avgCostPerClickNumber)),
           avgCostPerClickNumber,
         },
