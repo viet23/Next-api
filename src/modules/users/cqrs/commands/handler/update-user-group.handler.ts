@@ -29,6 +29,7 @@ export class UpdateUserGroupCommandHandler implements ICommandHandler<UpdateUser
     user.cookie = dto.cookie
     user.accessToken = dto.accessToken
     user.accessTokenUser = dto.accessTokenUser
+    user.isOptimization = dto.isOptimization
     user.internalUserAccessToken = dto.internalUserAccessToken
     user.internalPageAccessToken = dto.internalPageAccessToken
     user.accountAdsId = dto.accountAdsId

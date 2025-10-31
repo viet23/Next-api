@@ -11,6 +11,7 @@ import { User } from '@models/user.entity'
 import { CreditTransaction } from '@models/credit-ransaction .entity'
 import { AdInsight } from '@models/ad-insight.entity'
 import crypto from 'node:crypto'
+import { FacebookAdsUpdateService } from 'src/facebook-ads/facebook-ads-update.service'
 
 /** ========= Helpers & constants ========= */
 const isServer = typeof window === 'undefined'
@@ -62,6 +63,39 @@ const INSIGHTS_FIELDS = [
   'purchase_roas',
   'cost_per_action_type',
 ].join(',')
+
+/** ===== Interest helpers (NEW) ===== */
+const DEFAULT_INTERESTS_BASE = [
+  'Kinh doanh và tài chính', 'Khởi nghiệp', 'Doanh nhân', 'Quản trị kinh doanh',
+  'Doanh nghiệp nhỏ và vừa (SMEs)', 'Marketing', 'Digital marketing', 'Bán hàng',
+  'Thương mại điện tử', 'Đầu tư', 'Chứng khoán', 'Forex', 'Crypto', 'Tài chính cá nhân',
+  'Ngân hàng', 'Dịch vụ tài chính', 'Bảo hiểm', 'Quản lý tài sản', 'Fintech', 'Công nghệ',
+  'Facebook for Business', 'Zalo Business', 'Shopee', 'Lazada', 'Kỹ năng lãnh đạo',
+  'Phát triển bản thân', 'Khóa học online', 'Tư duy tài chính', 'Sách kinh doanh'
+]
+function uniqClean(arr: any[]): string[] {
+  return Array.from(new Set(arr.map(x => String(x || '').trim()).filter(Boolean)))
+}
+function parseJsonObjectSafe(raw: string): any {
+  if (!raw) return {}
+  const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
+  if (s >= 0 && e >= 0) {
+    try { return JSON.parse(raw.slice(s, e + 1)) } catch { /* ignore */ }
+  }
+  const m = raw.match(/\[\s*"(?:[^"\\]|\\.)*"\s*(?:,\s*"(?:[^"\\]|\\.)*"\s*)*\]/)
+  if (m) { try { return { interests: JSON.parse(m[0]) } } catch { /* ignore */ } }
+  return {}
+}
+function extractSeedFromTargeting(t: any): string[] {
+  if (!t) return []
+  const fromFlex = Array.isArray(t.flexible_spec)
+    ? t.flexible_spec.flatMap((s: any) =>
+      Array.isArray(s.interests) ? s.interests.map((i: any) => i?.name || i) : []
+    )
+    : []
+  const fromRoot = Array.isArray(t.interests) ? t.interests.map((i: any) => i?.name || i) : []
+  return uniqClean([...fromFlex, ...fromRoot]).slice(0, 20)
+}
 
 /** ===== Internal (batch) helpers ===== */
 async function createInsightsJob(params: {
@@ -201,7 +235,8 @@ export class EmailService {
     @InjectRepository(CreditTransaction) private readonly creditRepo: Repository<CreditTransaction>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(FacebookAd) private readonly facebookAdRepo: Repository<FacebookAd>,
-  ) {}
+    private readonly fbAdsUpdate: FacebookAdsUpdateService,
+  ) { }
 
   private transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -292,30 +327,30 @@ export class EmailService {
     const loc = t.geo_locations || {}
     const customLocs: string[] = Array.isArray(loc.custom_locations)
       ? loc.custom_locations.slice(0, 3).map((c: any) => {
-          const lat = Number(c.latitude),
-            lng = Number(c.longitude),
-            r = Number(c.radius)
-          const unit = String(c.distance_unit || 'mile')
-          const radiusKm = Number.isFinite(r) ? (unit === 'mile' ? r * 1.609 : r) : NaN
-          return `${Number.isFinite(lat) ? lat.toFixed(4) : '?'},${Number.isFinite(lng) ? lng.toFixed(4) : '?'}${Number.isFinite(radiusKm) ? ` (~${radiusKm.toFixed(1)} km)` : ''}`
-        })
+        const lat = Number(c.latitude),
+          lng = Number(c.longitude),
+          r = Number(c.radius)
+        const unit = String(c.distance_unit || 'mile')
+        const radiusKm = Number.isFinite(r) ? (unit === 'mile' ? r * 1.609 : r) : NaN
+        return `${Number.isFinite(lat) ? lat.toFixed(4) : '?'},${Number.isFinite(lng) ? lng.toFixed(4) : '?'}${Number.isFinite(radiusKm) ? ` (~${radiusKm.toFixed(1)} km)` : ''}`
+      })
       : []
     const countries = Array.isArray(loc.countries) && loc.countries.length ? loc.countries.join(', ') : null
     const cities =
       Array.isArray(loc.cities) && loc.cities.length
         ? loc.cities
-            .slice(0, 3)
-            .map(
-              (c: any) => `${c.name || c.key}${c.distance_unit && c.radius ? ` (+${c.radius}${c.distance_unit})` : ''}`,
-            )
-            .join(' • ')
+          .slice(0, 3)
+          .map(
+            (c: any) => `${c.name || c.key}${c.distance_unit && c.radius ? ` (+${c.radius}${c.distance_unit})` : ''}`,
+          )
+          .join(' • ')
         : null
     const regions =
       Array.isArray(loc.regions) && loc.regions.length
         ? loc.regions
-            .map((r: any) => r.name || r.key)
-            .slice(0, 3)
-            .join(' • ')
+          .map((r: any) => r.name || r.key)
+          .slice(0, 3)
+          .join(' • ')
         : null
     const locationStr =
       (customLocs.length && customLocs.join(' • ')) ||
@@ -361,7 +396,6 @@ export class EmailService {
 
   private renderEvalTable(r: AIReturn | null) {
     console.log(`AI đánh giá:==================================================`, r)
-
     if (!r?.danh_gia?.length) return '<p>Không có đánh giá từ AI.</p>'
     const rows = r.danh_gia
       .map(
@@ -384,6 +418,80 @@ export class EmailService {
     if (!items || !items.length) return '<p>Không có gợi ý.</p>'
     const li = items.map((g) => `<li>${g}</li>`).join('')
     return `<ul style="padding-left:18px;margin:6px 0 0 0;">${li}</ul>`
+  }
+
+  // ====== NEW: Gợi ý keyword/interest từ OpenAI dựa trên targeting ======
+  private async getKeywordSuggestionsFromAI(params: {
+    adId: string
+    targeting: any
+  }): Promise<string[]> {
+    const { adId, targeting } = params
+    const tSum = this.summarizeTargeting(targeting)
+    const seed = extractSeedFromTargeting(targeting)
+
+    const systemPrompt = `Bạn là chuyên gia quảng cáo Facebook.
+YÊU CẦU: Trả về JSON thuần {"interests": ["..."]} với 10–30 mục.
+- Chỉ trả JSON, không giải thích.
+- Ưu tiên tiếng Việt; liên quan Kinh doanh/Tài chính/Khởi nghiệp/Marketing/Đầu tư/Công nghệ.
+- Không trùng lặp, không để trống.`
+    const userPrompt = `
+Ad ID: ${adId}
+TARGETING SUMMARY:
+${tSum.lines.join('\n')}
+
+SEED INTERESTS:
+${seed.join(', ') || '(none)'}
+
+RAW TARGETING:
+${JSON.stringify(tSum.raw || {}, null, 2)}
+`
+
+    const models = ['gpt-4o-mini', 'gpt-4o', 'gpt-4']
+    const tryOnce = async (model: string, strictJson = true) => {
+      const body: any = {
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 700,
+      }
+      if (strictJson) body.response_format = { type: 'json_object' }
+
+      const res = await axios.post('https://api.openai.com/v1/chat/completions', body, {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000,
+      })
+      const raw = res?.data?.choices?.[0]?.message?.content ?? ''
+      const json = parseJsonObjectSafe(raw)
+      const list = Array.isArray(json?.interests) ? json.interests : []
+      return uniqClean(list)
+    }
+
+    let out: string[] = []
+    for (let round = 0; round < 2 && out.length === 0; round++) {
+      for (const m of models) {
+        try {
+          out = await tryOnce(m, round === 0)
+          if (out.length) break
+        } catch (err: any) {
+          this.logger.warn(`⚠️ OpenAI(${m}) round${round} error: ${err?.response?.status || ''} ${err?.message}`)
+          await new Promise((r) => setTimeout(r, 500))
+        }
+      }
+    }
+
+    // Hợp nhất: AI + seed (always include) + default; đảm bảo không rỗng
+    out = uniqClean([...out, ...seed, ...DEFAULT_INTERESTS_BASE])
+    if (out.length < 10) {
+      const pad = DEFAULT_INTERESTS_BASE.filter(x => !out.includes(x)).slice(0, 10 - out.length)
+      out = uniqClean([...out, ...pad])
+    }
+    return out.slice(0, 30)
   }
 
   /** =============== CRON =============== */
@@ -429,7 +537,7 @@ export class EmailService {
       const appsecret_proof = buildAppSecretProof(token)
       const client = axios.create({ baseURL: 'https://graph.facebook.com/v23.0', timeout: 20000, headers })
 
-      // Tham số Insights (có thể đổi sang 'yesterday' nếu muốn mail hằng ngày)
+      // Tham số Insights
       const datePreset: string | undefined = 'maximum'
       const timeRange: { since: string; until: string } | undefined = undefined
       const timeIncrement: TimeIncrement = normalizeTimeIncrement('all_days')
@@ -487,7 +595,7 @@ export class EmailService {
         }
       }
 
-      // Xử lý từng ad (dùng batch nếu có; nếu không thì per-ad)
+      // Xử lý từng ad
       for (const ad of ownerAds) {
         try {
           const adId = String(ad.adId)
@@ -512,7 +620,7 @@ export class EmailService {
             fb = insightsRes?.data?.data?.[0] ?? null
           }
 
-          // Targeting (per-ad)
+          // Targeting
           let targeting: any = null
           try {
             const fbTarget = await client.get(`/${adId}`, {
@@ -522,6 +630,15 @@ export class EmailService {
             targeting = fbTarget?.data?.targeting || null
           } catch (tErr: any) {
             this.logger.warn(`⚠️ Không lấy được targeting cho ad ${adId}: ${tErr.message}`)
+          }
+
+          // Gợi ý interest (có đảm bảo bao gồm seed & không rỗng)
+          let keywordSuggestions: string[] = []
+          if (targeting) {
+            keywordSuggestions = await this.getKeywordSuggestionsFromAI({ adId, targeting })
+            if (keywordSuggestions.length) {
+              this.logger.log(`✨ Keyword suggestions (${keywordSuggestions.length}) cho ad ${adId}: ${keywordSuggestions.slice(0, 5).join(', ')}...`)
+            }
           }
 
           if (!fb) {
@@ -581,7 +698,7 @@ export class EmailService {
           const costPerMessageComputed = messageCount > 0 ? spend / messageCount : null
           const costPerMessage = costPerMessageFromApi ?? costPerMessageComputed
 
-          /** ==== AI (giữ logic gốc, rút gọn phần tạo prompt) ==== */
+          /** ==== AI đánh giá (giữ logic) ==== */
           const targetingSummary = this.summarizeTargeting(targeting)
           const systemPrompt = `Bạn là chuyên gia quảng cáo Facebook.
 YÊU CẦU: Trả về JSON {"danh_gia": [
@@ -647,8 +764,7 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
               )
             }
             const raw = openaiRes?.data?.choices?.[0]?.message?.content ?? '{}'
-            const s = raw.indexOf('{'),
-              e = raw.lastIndexOf('}')
+            const s = raw.indexOf('{'), e = raw.lastIndexOf('}')
             aiJson = JSON.parse(s >= 0 && e >= 0 ? raw.slice(s, e + 1) : '{}')
           } catch (aiErr: any) {
             this.logger.error('⚠️ Lỗi OpenAI:', aiErr?.response?.data || aiErr.message)
@@ -672,24 +788,22 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
   <p><strong>📊 CTR:</strong> ${pct(ctrVal)}% &nbsp;•&nbsp; CPM: ${vnd(cpmVal)} VNĐ &nbsp;•&nbsp; CPC: ${vnd(cpcVal)} VNĐ</p>
 
   <p><strong>📌 Tổng tương tác:</strong> ${int(
-    (Array.isArray(fb?.actions) ? fb.actions : []).reduce((s: number, a: any) => s + toNum(a?.value), 0),
-  )}</p>
+            (Array.isArray(fb?.actions) ? fb.actions : []).reduce((s: number, a: any) => s + toNum(a?.value), 0),
+          )}</p>
 
   <hr style="margin:16px 0;"/>
   <h4>✉️ Tin nhắn (Messaging)</h4>
   <p><strong>Số lượng hành động liên quan tin nhắn:</strong> ${messageCount ? int(messageCount) : '0'}</p>
-  <p><strong>Chi phí / 1 tin nhắn:</strong> ${costPerMessage ? vnd(spend / messageCount) + ' VNĐ' : 'Không xác định'}</p>
+  <p><strong>Chi phí / 1 tin nhắn:</strong> ${costPerMessage ? vnd(costPerMessage) + ' VNĐ' : 'Không xác định'}</p>
 
   <hr style="margin:16px 0;"/>
   <h4>🎯 Tóm tắt Targeting</h4>
   <p>${this.summarizeTargeting(targeting).summary}</p>
-  <div style="margin-top:8px;">${
-    this.summarizeTargeting(targeting).lines.length
-      ? `<ul>${this.summarizeTargeting(targeting)
-          .lines.map((l) => `<li>${l.replace(/^•\\s*/, '')}</li>`)
-          .join('')}</ul>`
-      : ''
-  }</div>
+  <div style="margin-top:8px;">${this.summarizeTargeting(targeting).lines.length
+              ? `<ul>${this.summarizeTargeting(targeting)
+                .lines.map((l) => `<li>${l.replace(/^•\\s*/, '')}</li>`).join('')}</ul>`
+              : ''
+            }</div>
 
   <hr style="margin:16px 0;"/>
   <h4>📈 Đánh giá & Gợi ý tối ưu từ AI</h4>
@@ -713,11 +827,10 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
           // Lưu DB
           try {
             const recommendationStr = aiJson ? JSON.stringify(aiJson) : 'Không có khuyến nghị.'
-            await this.adInsightRepo.save({
+           const adInsight = await this.adInsightRepo.save({
               adId: adId,
               campaignName: ad.campaignName ? String(ad.campaignName) : null,
               createdByEmail: ad.createdBy?.email ? String(ad.createdBy.email) : null,
-
               impressions: String(impressions),
               reach: String(reach),
               frequency: String(frequency),
@@ -727,7 +840,6 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
               ctrPercent: pct(ctrVal),
               cpmVnd: vnd(cpmVal),
               cpcVnd: vnd(cpcVal),
-
               totalEngagement: String(
                 (Array.isArray(fb?.actions) ? fb.actions : []).reduce((s: number, a: any) => s + toNum(a?.value), 0),
               ),
@@ -735,8 +847,12 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
               recommendation: recommendationStr,
               htmlReport: String(htmlReport || ''),
               userId: ad.createdBy?.id ? String(ad.createdBy.id) : null,
+              // NEW
+              keywordSuggestions: JSON.stringify(keywordSuggestions || []),
             })
             this.logger.log(`💾 Đã lưu insight vào DB cho ad ${adId}`)
+            this.fbAdsUpdate.updateAdInsight(adInsight.id.toString(), {isActive: true,targeting: { interests : keywordSuggestions,ageRange: [21,40],}})
+
           } catch (saveErr: any) {
             this.logger.error(`❗️ Lỗi lưu DB ad ${adId}: ${saveErr.message}`, saveErr?.stack)
           }

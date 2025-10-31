@@ -1,38 +1,34 @@
-import { Injectable, BadRequestException, InternalServerErrorException, Logger } from '@nestjs/common'
+import { Injectable, BadRequestException, Logger } from '@nestjs/common'
 import axios, { AxiosInstance } from 'axios'
 import qs from 'qs'
 import crypto from 'node:crypto'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
 import { AdInsight } from '@models/ad-insight.entity'
-import { User } from '@models/user.entity'
-import { AiPlannerService } from './ai-planner.service'
+import { FacebookAd } from '@models/facebook-ad.entity'
 import { AdInsightUpdateDTO } from './dto/ads-update.dto'
 
-type TargetingSpec = Record<string, any>
-
-const isServer = typeof window === 'undefined'
+/** KHÔNG dùng cookie */
 function buildAppSecretProof(token?: string) {
   const secret = process.env.FB_APP_SECRET
   if (!token || !secret) return undefined
   return crypto.createHmac('sha256', secret).update(token).digest('hex')
 }
+
 function createFbGraphClient(opts: {
   token: string
-  cookie?: string
   version?: string
   timeoutMs?: number
 }): AxiosInstance {
-  const { token, cookie, version = 'v23.0', timeoutMs = 20_000 } = opts
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    Authorization: `Bearer ${token}`,
-  }
-  if (isServer && cookie) headers.Cookie = cookie
+  const { token, version = 'v23.0', timeoutMs = 20_000 } = opts
   const client = axios.create({
     baseURL: `https://graph.facebook.com/${version}`,
     timeout: timeoutMs,
-    headers,
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    paramsSerializer: (p) => qs.stringify(p, { arrayFormat: 'brackets' }),
   })
   client.interceptors.request.use((config) => {
     const proof = buildAppSecretProof(token)
@@ -42,343 +38,285 @@ function createFbGraphClient(opts: {
   return client
 }
 
+type FbAdset = { id: string; name?: string; status?: string }
+type FbInterest = { id: string; name: string }
+
+function extractFbError(err: any) {
+  const e = err?.response?.data?.error ?? err?.response?.data ?? err
+  const fb = {
+    message: e?.error_user_msg || e?.message || err?.message || 'Unknown error',
+    type: e?.type,
+    code: e?.code,
+    error_subcode: e?.error_subcode,
+    fbtrace_id: e?.fbtrace_id,
+  }
+  const http = {
+    status: err?.response?.status,
+    url: err?.config?.url,
+    method: err?.config?.method,
+  }
+  const raw = JSON.stringify(err?.response?.data || {}, null, 2)
+  const rawTrimmed = raw.length > 4000 ? raw.slice(0, 4000) + '...<truncated>' : raw
+  return { fb, http, raw: rawTrimmed }
+}
+
 @Injectable()
 export class FacebookAdsUpdateService {
   private readonly logger = new Logger(FacebookAdsUpdateService.name)
 
   constructor(
     @InjectRepository(AdInsight) private readonly adInsightRepo: Repository<AdInsight>,
-    @InjectRepository(User) private readonly userRepo: Repository<User>,
-    private readonly aiPlanner: AiPlannerService,
+    @InjectRepository(FacebookAd) private readonly facebookAdRepo: Repository<FacebookAd>,
   ) {}
 
-  // ---------- Utils ----------
-  private sleep(ms: number) {
-    return new Promise((r) => setTimeout(r, ms))
-  }
-  private fb(token: string, cookie?: string, version = 'v23.0', timeoutMs = 20_000) {
-    return createFbGraphClient({ token, cookie, version, timeoutMs })
+  private fb(token: string, version = 'v23.0', timeoutMs = 20_000) {
+    return createFbGraphClient({ token, version, timeoutMs })
   }
 
-  private normalizeTargetingForCreation(t: TargetingSpec) {
-    const out: TargetingSpec = { ...(t || {}) }
-    const flex: any[] = Array.isArray(out.flexible_spec) ? [...out.flexible_spec] : []
-    if (Array.isArray(out.interests) && out.interests.length) {
-      flex.push({ interests: out.interests })
-      delete out.interests
-    }
-    if (Array.isArray(out.behaviors) && out.behaviors.length) {
-      flex.push({ behaviors: out.behaviors })
-      delete out.behaviors
-    }
-    if (flex.length) out.flexible_spec = flex
+  /** Lấy danh sách ad set của campaign */
+  private async _getAdsetsByCampaign(fb: AxiosInstance, campaignId: string) {
+    const out: FbAdset[] = []
+    let after: string | undefined
+    this.logger.debug(`[FB] Lấy danh sách ad sets cho campaign=${campaignId}`)
+    do {
+      try {
+        const { data } = await fb.get(`/${campaignId}/adsets`, {
+          params: { fields: 'id,name,status', limit: 50, after },
+        })
+        this.logger.debug(`[FB] Trả về ${data?.data?.length || 0} ad sets (after=${after || 'none'})`)
+        if (Array.isArray(data?.data)) out.push(...data.data)
+        after = data?.paging?.cursors?.after
+      } catch (err) {
+        const det = extractFbError(err)
+        this.logger.error(`[FB] Lỗi lấy ad sets campaign=${campaignId}: ${det.fb.message}`, det)
+        throw new BadRequestException(`FB get adsets failed: ${det.fb.message}`)
+      }
+    } while (after)
+    this.logger.debug(`[FB] Tổng cộng ${out.length} ad sets lấy được.`)
     return out
   }
-  private mergeFlex(t: TargetingSpec, chunk: { interests?: any[]; behaviors?: any[] }) {
-    const flex: any[] = Array.isArray(t.flexible_spec) ? [...t.flexible_spec] : []
-    const add: any = {}
-    if (chunk.interests?.length) add.interests = chunk.interests
-    if (chunk.behaviors?.length) add.behaviors = chunk.behaviors
-    if (Object.keys(add).length) flex.push(add)
-    if (flex.length) t.flexible_spec = flex
-    return t
-  }
 
-  private extractPlanFromAdInsight(ad: AdInsight): any | null {
-    if (ad.engagementDetails) {
+  /** Tra cứu interests keyword → Facebook interest objects */
+  private async _resolveInterests(fb: AxiosInstance, interests?: string[]): Promise<FbInterest[]> {
+    if (!interests?.length) return []
+    const results: FbInterest[] = []
+    this.logger.debug(`[FB] Bắt đầu tra cứu ${interests.length} interests...`)
+    for (const kw of interests) {
       try {
-        const obj = JSON.parse(ad.engagementDetails)
-        if (obj && typeof obj === 'object') return obj
-      } catch {}
-    }
-    const text = `${ad.recommendation || ''}\n${ad.htmlReport || ''}`
-    const m = text.match(/(\{[\s\S]*\}|\[[\s\S]*\])/)
-    if (m) {
-      try {
-        const obj = JSON.parse(m[0])
-        if (obj && typeof obj === 'object') return obj
-      } catch {}
-    }
-    return null
-  }
-
-  private async getAdContextByAdIdSafe(adId: string, userLookup: { userId?: string | null; email?: string | null }) {
-    const toData = async <T>(p: Promise<any>): Promise<T> => (await p).data as T
-
-    const userData =
-      (userLookup.userId ? await this.userRepo.findOne({ where: { id: userLookup.userId } }) : null) ||
-      (userLookup.email ? await this.userRepo.findOne({ where: { email: userLookup.email } }) : null)
-
-    if (!userData) throw new BadRequestException('Không tìm thấy user cho adInsight.')
-    const { accessTokenUser, cookie, accountAdsId, idPage } = userData
-    if (!accessTokenUser) throw new BadRequestException('Thiếu accessTokenUser.')
-
-    // ✅ vẫn truyền cookie như create-flow
-    const fb = this.fb(accessTokenUser, cookie, 'v23.0')
-
-    const ad = await toData<any>(
-      fb.get(`/${adId}`, {
-        params: {
-          fields: 'id,name,status,adset_id,campaign_id,creative{effective_object_story_id,object_story_spec}',
-        },
-      }),
-    )
-    if (!ad?.adset_id || !ad?.campaign_id) {
-      throw new BadRequestException(`Ad thiếu adset_id/campaign_id (adId=${adId}).`)
-    }
-
-    // ❌ không dùng effective_targeting (tránh lỗi #100)
-    const [adset, campaign] = await Promise.all([
-      toData<any>(
-        fb.get(`/${ad.adset_id}`, {
-          params: { fields: 'id,name,status,targeting,daily_budget,lifetime_budget,optimization_goal,billing_event' },
-        }),
-      ),
-      toData<any>(
-        fb.get(`/${ad.campaign_id}`, {
-          params: { fields: 'id,name,status,objective' },
-        }),
-      ),
-    ])
-
-    return { fb, userData, ad, adset, campaign, adAccountId: accountAdsId, pageId: idPage }
-  }
-
-  private mergeTargeting(current: TargetingSpec, plan: any): TargetingSpec {
-    const t: TargetingSpec = { ...(current || {}) }
-
-    if (plan.set_auto_placements) {
-      delete t.publisher_platforms
-      delete t.facebook_positions
-      delete t.instagram_positions
-      delete t.device_platforms
-    }
-    if (plan.expand_audience === true) {
-      ;(t as any).targeting_automation = { advantage_audience: 1 }
-    }
-    if (plan.age_range?.min) t.age_min = Number(plan.age_range.min)
-    if (plan.age_range?.max) t.age_max = Number(plan.age_range.max)
-    if (Array.isArray(plan.genders)) t.genders = plan.genders
-    if (Array.isArray(plan.locales)) t.locales = plan.locales
-
-    if (plan.geo) {
-      t.geo_locations = {
-        ...(t.geo_locations || {}),
-        ...(plan.geo.countries ? { countries: plan.geo.countries } : {}),
-        ...(plan.geo.cities ? { cities: plan.geo.cities } : {}),
-        ...(plan.geo.regions ? { regions: plan.geo.regions } : {}),
-        ...(plan.geo.location_types ? { location_types: plan.geo.location_types } : {}),
-      }
-      if (Array.isArray(plan.geo.custom_locations) && plan.geo.custom_locations.length) {
-        t.geo_locations = {
-          ...(t.geo_locations || {}),
-          custom_locations: plan.geo.custom_locations,
+        const { data } = await fb.get('/search', { params: { type: 'adinterest', q: kw, limit: 1 } })
+        const item = data?.data?.[0]
+        if (item?.id && item?.name) {
+          results.push({ id: item.id, name: item.name })
+          this.logger.debug(`[FB] Found interest "${kw}" → id=${item.id}`)
+        } else {
+          this.logger.warn(`[FB] Không tìm thấy interest cho "${kw}"`)
         }
+      } catch (err) {
+        const det = extractFbError(err)
+        this.logger.warn(`[FB] Lỗi khi tìm interest "${kw}": ${det.fb.message}`, det)
       }
     }
-
-    const flexAdd: any = {}
-    if (Array.isArray(plan.add_interests) && plan.add_interests.length > 0) {
-      flexAdd.interests = plan.add_interests.filter((i: any) => i?.id && i?.name)
-    }
-    if (Array.isArray(plan.add_behaviors) && plan.add_behaviors.length > 0) {
-      flexAdd.behaviors = plan.add_behaviors.filter((b: any) => b?.id)
-    }
-    if (Object.keys(flexAdd).length) this.mergeFlex(t, flexAdd)
-
-    if (plan.exclusions && typeof plan.exclusions === 'object') {
-      t.exclusions = { ...(t.exclusions || {}), ...plan.exclusions }
-    }
-
-    return this.normalizeTargetingForCreation(t)
+    this.logger.debug(`[FB] Tổng cộng tìm thấy ${results.length}/${interests.length} interests.`)
+    return results
   }
 
-  private async updateAdsetTargetingAndBudget(args: {
-    fb: AxiosInstance
-    adsetId: string
-    newTargeting: TargetingSpec
-    budget?: { increase_percent?: number; set_daily_budget?: number }
-  }) {
-    const { fb, adsetId, newTargeting, budget } = args
+  /** GET targeting hiện tại của ad set */
+  private async _getAdsetTargeting(fb: AxiosInstance, adsetId: string): Promise<any> {
+    this.logger.debug(`[FB] GET /${adsetId}?fields=targeting`)
+    const { data } = await fb.get(`/${adsetId}`, { params: { fields: 'targeting' } })
+    const tg = data?.targeting || {}
+    this.logger.debug(`[FB] Targeting hiện tại adset=${adsetId}: ${JSON.stringify(tg)}`)
+    return tg
+  }
 
-    const { data: cur } = await fb.get(`/${adsetId}`, { params: { fields: 'id,status,daily_budget' } })
-    const wasActive = cur?.status === 'ACTIVE'
-    if (wasActive) {
-      await fb.post(`/${adsetId}`, qs.stringify({ status: 'PAUSED' }), {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      })
-    }
-
-    const payload: any = { targeting: JSON.stringify(this.normalizeTargetingForCreation(newTargeting)) }
-    if (budget) {
-      if (typeof budget.set_daily_budget === 'number') {
-        payload.daily_budget = `${Math.round(budget.set_daily_budget)}`
-      } else if (typeof budget.increase_percent === 'number' && cur?.daily_budget) {
-        const old = Number(cur.daily_budget)
-        const inc = Math.round(old * (1 + budget.increase_percent / 100))
-        payload.daily_budget = `${inc}`
-      }
-    }
-
-    await fb.post(`/${adsetId}`, qs.stringify(payload), {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  /** Dedupe theo 'id' (fallback stringify) */
+  private uniqById<T extends { id?: string }>(arr: T[] = []) {
+    const seen = new Set<string>()
+    return arr.filter((x) => {
+      const k = x?.id ?? JSON.stringify(x)
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
     })
+  }
 
-    if (wasActive) {
-      await fb.post(`/${adsetId}`, qs.stringify({ status: 'ACTIVE' }), {
+  /** Merge targeting: giữ nguyên mọi thứ, chỉ cập nhật age & interests */
+  private mergeTargeting(existing: any, ageRange?: [number, number], interestObjs?: FbInterest[]) {
+    const merged = JSON.parse(JSON.stringify(existing || {})) // clone
+
+    // Age
+    if (ageRange && ageRange.length === 2) {
+      const [min, max] = ageRange
+      merged.age_min = Math.max(13, Math.floor(min))
+      merged.age_max = Math.min(65, Math.floor(max))
+    }
+
+    // Interests → flexible_spec
+    if (interestObjs?.length) {
+      if (!Array.isArray(merged.flexible_spec)) merged.flexible_spec = []
+      let group = merged.flexible_spec.find((g: any) => Array.isArray(g?.interests))
+      if (!group) {
+        group = { interests: [] as Array<{ id: string; name?: string }> }
+        merged.flexible_spec.push(group)
+      }
+      const current = Array.isArray(group.interests) ? group.interests : []
+      const next = this.uniqById([
+        ...current,
+        ...interestObjs.map((i) => ({ id: i.id, name: i.name })),
+      ])
+      group.interests = next
+    }
+
+    // Kiểm tra ràng buộc audience tối thiểu
+    const hasSomeAudience =
+      (merged.custom_audiences && merged.custom_audiences.length > 0) ||
+      !!merged.geo_locations ||
+      (merged.publisher_platforms && merged.publisher_platforms.length > 0) ||
+      (merged.facebook_positions && merged.facebook_positions.length > 0) ||
+      (merged.instagram_positions && merged.instagram_positions.length > 0) ||
+      (merged.audience_network_positions && merged.audience_network_positions.length > 0)
+
+    if (!hasSomeAudience) {
+      this.logger.warn(
+        `[FB] Targeting sau merge KHÔNG có geo/custom/placements. Cần giữ lại targeting cũ hoặc bổ sung geo_locations/custom_audiences/placements.`
+      )
+    }
+
+    this.logger.debug(`[FB] Targeting sau merge: ${JSON.stringify(merged)}`)
+    return merged
+  }
+
+  /** PATCH targeting cho ad set (log chi tiết) */
+  private async _updateAdsetTargeting(fb: AxiosInstance, adsetId: string, targeting: any) {
+    const body = qs.stringify({ targeting: JSON.stringify(targeting) })
+    this.logger.debug(`[FB] POST /${adsetId} với targeting=${JSON.stringify(targeting)}`)
+    try {
+      const { data } = await fb.post(`/${adsetId}`, body, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       })
+      this.logger.debug(`[FB] ✅ Cập nhật thành công adset=${adsetId}`)
+      return { adsetId, targeting, result: data }
+    } catch (err) {
+      const det = extractFbError(err)
+      this.logger.error(
+        `[FB] ❌ Update adset thất bại (adset=${adsetId}): ${det.fb.message} | type=${det.fb.type} code=${det.fb.code} sub=${det.fb.error_subcode} trace=${det.fb.fbtrace_id}`,
+        { ...det, adsetId, targeting }
+      )
+      throw Object.assign(new Error(det.fb.message), { details: det, adsetId, targeting })
     }
-
-    return payload
   }
 
-  private async abTestNewMessageAds(args: {
-    fb: AxiosInstance
-    adAccountId: string
-    pageId?: string | null
-    adsetId: string
-    oldAdId?: string
-    variants: Array<{ name: string; primaryText: string; imageHash?: string }>
-  }) {
-    const { fb, adAccountId, pageId, adsetId, oldAdId, variants } = args
-    if (oldAdId) {
-      try {
-        await fb.post(`/${oldAdId}`, qs.stringify({ status: 'PAUSED' }), {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        })
-      } catch {}
-    }
-
-    const created: any[] = []
-    for (const v of variants) {
-      const creative = await fb.post(
-        `/${adAccountId}/adcreatives`,
-        qs.stringify({
-          name: `[A/B] ${v.name}`,
-          object_story_spec: JSON.stringify({
-            page_id: pageId,
-            link_data: { image_hash: v.imageHash, message: v.primaryText, call_to_action: { type: 'MESSAGE_PAGE' } },
-          }),
-        }),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
-      )
-
-      const ad = await fb.post(
-        `/${adAccountId}/ads`,
-        qs.stringify({
-          name: v.name,
-          adset_id: adsetId,
-          creative: JSON.stringify({ creative_id: (creative as any).data?.id || (creative as any)?.id }),
-          status: 'ACTIVE',
-        }),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
-      )
-      created.push({
-        ad_id: (ad as any).data?.id || (ad as any)?.id,
-        creative_id: (creative as any).data?.id || (creative as any)?.id,
-        name: v.name,
-      })
-    }
-    return created
-  }
-
-  // ---------- PUBLIC: updateAdInsight (AN TOÀN, RIÊNG BIỆT) ----------
+  // ---------- PUBLIC: chỉ cập nhật targeting ad set ----------
   async updateAdInsight(id: string, dto: AdInsightUpdateDTO) {
+    this.logger.log(`\n=== updateAdInsight called with id=${id}, dto=${JSON.stringify(dto)} ===`)
     try {
-      this.logger.log(`STEP updateAdInsight(SAFE): id=${id} isActive=${dto.isActive}`)
-
-      const adInsight = await this.adInsightRepo
-        .createQueryBuilder('adInsight')
-        .where('adInsight.id=:id', { id })
-        .getOne()
+      // 0) Validate & fetch records
+      const adInsight = await this.adInsightRepo.findOne({ where: { id } })
       if (!adInsight) throw new BadRequestException(`Không tìm thấy AdInsight id=${id}`)
+      this.logger.debug(`AdInsight tìm thấy: adId=${adInsight.adId}`)
 
+      // chỉ lưu cục bộ isActive; KHÔNG patch campaign
       if (typeof dto.isActive === 'boolean') adInsight.isActive = dto.isActive
+      let saved = adInsight // hoặc await this.adInsightRepo.save(adInsight)
 
-      // 1) Lấy/generate "plan" (nếu thiếu → gọi GPT qua service riêng)
-      let plan = this.extractPlanFromAdInsight(adInsight)
-      if (!plan) {
-        if (!adInsight.adId) throw new BadRequestException('AdInsight thiếu adId.')
+      const adId = adInsight.adId
+      if (!adId) throw new BadRequestException(`AdInsight id=${id} không có adId`)
+      const facebookAd = await this.facebookAdRepo.findOne({
+        where: { adId },
+        relations: ['campaign', 'createdBy'],
+      })
+      if (!facebookAd) throw new BadRequestException(`Không tìm thấy FacebookAd adId=${adId}`)
 
-        const ctx = await this.getAdContextByAdIdSafe(adInsight.adId, {
-          userId: adInsight.userId || null,
-          email: adInsight.createdByEmail || null,
-        })
-        const currentTargeting = ctx?.adset?.targeting || {}
-        const campaignObjective = ctx?.campaign?.objective
+      const campaignId = facebookAd.campaign?.campaignId
+      if (!campaignId) throw new BadRequestException(`Không có campaignId cho adId=${adId}`)
+      this.logger.debug(`FacebookAd liên kết campaignId=${campaignId}`)
 
-        // dựng report tối thiểu
-        let report: any
+      // Auth từ createdBy (NO COOKIE)
+      const createdBy: any = facebookAd.createdBy
+      if (!createdBy) throw new BadRequestException('Bản ghi FacebookAd không có createdBy.')
+      const isInternal = !!createdBy?.isInternal
+      const token: string | undefined = isInternal ? createdBy?.internalUserAccessToken : createdBy?.accessTokenUser
+      if (!token) throw new BadRequestException('Thiếu access token Facebook từ createdBy.')
+      this.logger.debug(`[AUTH] Mode=${isInternal ? 'internal' : 'external'} | createdBy=${createdBy?.email || createdBy?.id}`)
+      const fb = this.fb(token)
+
+      // 1) Input mới
+      const ageRange = dto.targeting?.ageRange
+      const interestsKw = dto.targeting?.interests
+      const hasInput = (ageRange && ageRange.length === 2) || (interestsKw && interestsKw.length > 0)
+      if (!hasInput) {
+        this.logger.log(`Không có targeting → không cập nhật gì lên Facebook.`)
+        return { ...saved, fbApplied: { adsets: [] }, fbError: null, auth_mode: isInternal ? 'internal' : 'external' }
+      }
+
+      // 2) Resolve interests → IDs
+      const interestObjs = await this._resolveInterests(fb, interestsKw)
+
+      // 3) Lấy adsets
+      const adsets = await this._getAdsetsByCampaign(fb, campaignId)
+      if (!adsets.length) {
+        this.logger.warn(`⚠ Campaign ${campaignId} không có ad set nào.`)
+        return { ...saved, fbApplied: { adsets: [] }, fbError: null, auth_mode: isInternal ? 'internal' : 'external' }
+      }
+
+      // 4) Cho từng ad set: GET current targeting → merge → validate → POST update
+      const fbAdsetUpdates: any[] = []
+      for (const as of adsets) {
         try {
-          if (adInsight.recommendation?.trim().startsWith('{')) report = JSON.parse(adInsight.recommendation)
-        } catch {}
-        if (!report) {
-          report = {
-            impressions: adInsight.impressions,
-            reach: adInsight.reach,
-            ctrPercent: adInsight.ctrPercent,
-            cpmVnd: adInsight.cpmVnd,
-            clicks: adInsight.clicks,
-            spendVnd: adInsight.spendVnd,
-            raw: { recommendation: adInsight.recommendation, htmlReport: adInsight.htmlReport },
+          this.logger.log(`➡ Bắt đầu cập nhật adset ${as.id} (${as.name})`)
+          const current = await this._getAdsetTargeting(fb, as.id)
+          const merged = this.mergeTargeting(current, ageRange, interestObjs)
+
+          // Validation trước khi POST (tránh FB code 100/1885364)
+          const hasSomeAudience =
+            (merged.custom_audiences && merged.custom_audiences.length > 0) ||
+            !!merged.geo_locations ||
+            (merged.publisher_platforms && merged.publisher_platforms.length > 0) ||
+            (merged.facebook_positions && merged.facebook_positions.length > 0) ||
+            (merged.instagram_positions && merged.instagram_positions.length > 0) ||
+            (merged.audience_network_positions && merged.audience_network_positions.length > 0)
+
+          if (!hasSomeAudience) {
+            const explain =
+              'Targeting sau merge thiếu geo_locations/custom_audiences/placements. Giữ lại targeting cũ hoặc bổ sung một trong các trường này.'
+            this.logger.error(`[VALIDATION] ${explain}`, { adsetId: as.id, merged })
+            fbAdsetUpdates.push({ adsetId: as.id, name: as.name, error_message: explain, sent_targeting: merged })
+            continue
           }
-        }
 
-        plan = await this.aiPlanner.suggestPlanFromReport(report, currentTargeting, campaignObjective)
-        adInsight.recommendation = JSON.stringify(plan) // lưu lại để lần sau khỏi gọi GPT
+          const r = await this._updateAdsetTargeting(fb, as.id, merged)
+          fbAdsetUpdates.push(r)
+        } catch (e: any) {
+          const det = e?.details || extractFbError(e)
+          const errRecord = {
+            adsetId: as.id,
+            name: as.name,
+            error_message: det?.fb?.message || e?.message || 'Unknown error',
+            error_type: det?.fb?.type,
+            error_code: det?.fb?.code,
+            error_subcode: det?.fb?.error_subcode,
+            fbtrace_id: det?.fb?.fbtrace_id,
+            http_status: det?.http?.status,
+            http_url: det?.http?.url,
+            http_method: det?.http?.method,
+            sent_targeting: det?.targeting,
+            raw: det?.raw,
+          }
+          this.logger.error(
+            `❌ Lỗi cập nhật adset ${as.id}: ${errRecord.error_message} (type=${errRecord.error_type} code=${errRecord.error_code} sub=${errRecord.error_subcode} trace=${errRecord.fbtrace_id})`,
+            errRecord
+          )
+          fbAdsetUpdates.push(errRecord)
+        }
       }
 
-      const saved = await this.adInsightRepo.save(adInsight)
-      this.logger.log(`STEP updateAdInsight(SAFE): plan ready`)
-
-      // 2) Apply lên FB (không gọi effective_targeting)
-      let fbApplied: any = null
-      let fbError: string | null = null
-
-      try {
-        if (!adInsight.adId) throw new BadRequestException('AdInsight thiếu adId.')
-        const { fb, ad, adset, adAccountId, pageId } = await this.getAdContextByAdIdSafe(adInsight.adId, {
-          userId: adInsight.userId || null,
-          email: adInsight.createdByEmail || null,
-        })
-
-        const newTargeting = this.mergeTargeting(adset?.targeting || {}, plan)
-        const updatePayload = await this.updateAdsetTargetingAndBudget({
-          fb,
-          adsetId: ad.adset_id,
-          newTargeting,
-          budget: plan.budget,
-        })
-
-        let createdAds: any[] = []
-        if (plan.ab_test?.variants?.length && adAccountId) {
-          createdAds = await this.abTestNewMessageAds({
-            fb,
-            adAccountId,
-            pageId,
-            adsetId: ad.adset_id,
-            oldAdId: plan.ab_test.pause_old_ad ? ad.id : undefined,
-            variants: plan.ab_test.variants,
-          })
-        }
-
-        fbApplied = {
-          adId: ad.id,
-          adsetId: ad.adset_id,
-          applied: { targeting: true, budget: !!plan.budget, ab_test_created: createdAds.length },
-          details: { updatePayload, createdAds, plan },
-        }
-      } catch (e: any) {
-        fbError = e?.response?.data?.error?.error_user_msg || e?.message || String(e)
-        this.logger.error('❌ applyFromAdInsight(SAFE) failed:', e?.response?.data || e)
-      }
-
-      return { ...saved, fbApplied, fbError }
+      this.logger.log(`✅ Hoàn tất updateAdInsight id=${id}`)
+      saved = await this.adInsightRepo.save(adInsight)
+      return { ...saved, fbApplied: { adsets: fbAdsetUpdates }, fbError: null, auth_mode: isInternal ? 'internal' : 'external' }
     } catch (error: any) {
-      const errorMessage = error?.response?.data?.error?.error_user_msg || error.message
-      this.logger.error('❌ updateAdInsight(SAFE) failed:', error?.response?.data || error)
-      throw new BadRequestException(`Cập nhập quảng cáo thất bại: ${errorMessage}`)
+      const det = extractFbError(error)
+      this.logger.error('❌ updateAdInsight failed: ' + det.fb.message, det)
+      throw new BadRequestException(`Cập nhật quảng cáo thất bại: ${det.fb.message}`)
     }
   }
 }

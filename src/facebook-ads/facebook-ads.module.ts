@@ -35,6 +35,6 @@ import { UserSubscription } from '@models/user-subscription.entity'
     PlanUsageService
   ],
   controllers: [FacebookAdsController],
-  exports: [FacebookAdsService, FacebookAdsInternalService, PlanUsageService],
+  exports: [FacebookAdsService, FacebookAdsInternalService, PlanUsageService ,FacebookAdsUpdateService],
 })
 export class FacebookModule { }

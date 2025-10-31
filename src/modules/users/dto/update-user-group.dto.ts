@@ -26,9 +26,14 @@ export class UpdateUserGroupDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsBoolean()
-  // nhận cả 'true'/'false' từ FE
   @Transform(({ value }) => value === 'true' || value === true)
   isActive?: boolean
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === true)
+  isOptimization?: boolean
 
   @ApiProperty({ required: false })
   @IsOptional()

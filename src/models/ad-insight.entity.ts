@@ -72,6 +72,9 @@ export class AdInsight extends BaseEntity {
   @Column({ name: 'html_report', type: 'text', nullable: true })
   htmlReport?: string
 
+  @Column({ name: 'keyword_suggestions', type: 'jsonb', nullable: true })
+  keywordSuggestions: any
+
   /** Liên kết người dùng nếu cần */
   @Index()
   @Column({ name: 'user_id', type: 'varchar', nullable: true })

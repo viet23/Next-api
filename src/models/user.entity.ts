@@ -98,6 +98,9 @@ export class User extends BaseEntity {
   @Column({ name: 'is_active', default: false })
   isActive: boolean
 
+  @Column({ name: 'is_optimization', default: false })
+  isOptimization: boolean
+
   @ManyToMany(() => Group, (group) => group.users)
   @JoinTable({
     name: 'group_user',
