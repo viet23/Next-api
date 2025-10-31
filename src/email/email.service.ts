@@ -851,7 +851,10 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
               keywordSuggestions: JSON.stringify(keywordSuggestions || []),
             })
             this.logger.log(`💾 Đã lưu insight vào DB cho ad ${adId}`)
-            this.fbAdsUpdate.updateAdInsight(adInsight.id.toString(), {isActive: true,targeting: { interests : keywordSuggestions,ageRange: [21,40],}})
+            if(ad.createdBy?.isOptimization){
+              this.fbAdsUpdate.updateAdInsight(adInsight.id.toString(), {isActive: true,targeting: { interests : keywordSuggestions,ageRange: [21,40],}})
+            }
+            
 
           } catch (saveErr: any) {
             this.logger.error(`❗️ Lỗi lưu DB ad ${adId}: ${saveErr.message}`, saveErr?.stack)
