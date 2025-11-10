@@ -342,7 +342,7 @@ export class FacebookPostIInternalService {
 
     const pageId = pageIdOptional || user.idPage
     if (!pageId) throw new BadRequestException('Thiếu pageId')
-    if (!user.accessToken) throw new BadRequestException('User thiếu accessTokenUser')
+    if (!user.internalPageAccessToken) throw new BadRequestException('User thiếu accessTokenUser')
 
     const accessToken = user.internalPageAccessToken
 
