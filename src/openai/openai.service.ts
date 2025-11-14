@@ -105,7 +105,7 @@ export class OpenaiService {
       return {
         ok: true,
         result,
-        raw: JSON.stringify(result, null, 2), // 👈 giống data 1 (string JSON pretty)
+        raw: JSON.stringify(result, null, 2),
         usage: {
           prompt_tokens: 0,
           completion_tokens: 0,
@@ -122,7 +122,7 @@ export class OpenaiService {
           },
         },
         model: 'gpt-5-2025-08-07',
-        requestId: `req_${typeof randomUUID === 'function' ? randomUUID() : Math.random().toString(36).slice(2)}`, // fallback nếu thiếu crypto
+        requestId: `req_${typeof randomUUID === 'function' ? randomUUID() : Math.random().toString(36).slice(2)}`,
         status: 200,
       }
     }
@@ -170,7 +170,7 @@ export class OpenaiService {
       console.log(
         `Fetching top campaigns from Facebook...`,
         {
-          limit: Math.max(1, parseInt(limit, 10)), // mặc định 200
+          limit: Math.max(1, parseInt(limit, 10)),
           fields,
           effective_status,
           apiVersion: config.apiVersion,
@@ -180,7 +180,7 @@ export class OpenaiService {
 
       top3Campaigns = await this.fbService.listAds(
         {
-          limit: Math.max(1, parseInt(limit, 10)), // mặc định 200
+          limit: Math.max(1, parseInt(limit, 10)),
           fields,
           effective_status,
           apiVersion: config.apiVersion,
@@ -190,21 +190,17 @@ export class OpenaiService {
 
       console.log(`top3Campaigns-------`, JSON.stringify(top3Campaigns))
 
-      // Nếu record đã tồn tại thì update, nếu chưa thì insert
       topcamData = await this.topcamFbRepo.save({
         ...(topcamData || {}),
         userId: String(userData.id),
         topCam: top3Campaigns,
         updatedAt: now,
-        // Ensure required fields are present
         id: topcamData?.id ?? undefined,
         generateBeforInsert: topcamData?.generateBeforInsert ?? null,
         doBeforUpdate: topcamData?.doBeforUpdate ?? null,
         createdAt: topcamData?.createdAt ?? new Date(),
       })
     }
-
-    // return topcamData;
 
     console.log(`top3Campaigns-------`, JSON.stringify(top3Campaigns))
 
@@ -217,7 +213,7 @@ export class OpenaiService {
       const { data, headers, status } = await this.http.post(
         'https://api.openai.com/v1/chat/completions',
         {
-          model: 'gpt-5', // hoặc 'gpt-5-turbo'
+          model: 'gpt-5',
           messages: [
             {
               role: 'system',
@@ -227,7 +223,7 @@ Không trả thêm bất kỳ ký tự nào khác.`,
             },
             { role: 'user', content: detailedPrompt },
           ],
-          max_completion_tokens: 4000, // ✅ tham số mới
+          max_completion_tokens: 4000,
         },
         {
           headers: {
@@ -254,7 +250,6 @@ Không trả thêm bất kỳ ký tự nào khác.`,
     }
   }
 
-  /** 🟢 Copywriter → trả plain text */
   /** 🟢 Copywriter → plain text (dùng GPT-4) */
   async rewriteText(prompt: string) {
     const apiKey = process.env.OPENAI_API_KEY
@@ -264,7 +259,7 @@ Không trả thêm bất kỳ ký tự nào khác.`,
       const { data, headers, status } = await this.http.post(
         '/chat/completions',
         {
-          model: 'gpt-4', // 👈 đổi về GPT-4
+          model: 'gpt-4',
           messages: [
             {
               role: 'system',
@@ -272,8 +267,8 @@ Không trả thêm bất kỳ ký tự nào khác.`,
             },
             { role: 'user', content: prompt },
           ],
-          temperature: 0.4, // 👈 thêm để output đa dạng hơn 1 chút
-          max_tokens: 4000, // 👈 GPT-4 dùng max_tokens
+          temperature: 0.4,
+          max_tokens: 4000,
         },
         { headers: this.buildHeaders(apiKey) },
       )
@@ -304,7 +299,7 @@ Không trả thêm bất kỳ ký tự nào khác.`,
       const { data, headers, status } = await this.http.post(
         '/chat/completions',
         {
-          model: 'gpt-4', // 👈 đổi về GPT-4
+          model: 'gpt-4',
           messages: [
             {
               role: 'system',
@@ -312,8 +307,8 @@ Không trả thêm bất kỳ ký tự nào khác.`,
             },
             { role: 'user', content: prompt },
           ],
-          temperature: 0, // 👈 để output ít "nói lan man"
-          max_tokens: 4000, // 👈 GPT-4 dùng max_tokens
+          temperature: 0,
+          max_tokens: 4000,
         },
         { headers: this.buildHeaders(apiKey) },
       )
@@ -338,8 +333,6 @@ Không trả thêm bất kỳ ký tự nào khác.`,
     return {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
-      // Gắn request id của bạn (tự sinh) để dò log đầu-cuối nếu muốn:
-      // 'X-Request-Id': crypto.randomUUID(),
     }
   }
 
@@ -447,7 +440,7 @@ Không trả thêm bất kỳ ký tự nào khác.`,
         {
           model: 'gpt-4',
           messages: [{ role: 'user', content: prompt }],
-          temperature: 0.9, // 👈 creative hơn
+          temperature: 0.9,
           max_tokens: 4000,
         },
         { headers: this.buildHeaders(apiKey) },
@@ -555,7 +548,7 @@ Không trả thêm bất kỳ ký tự nào khác.`,
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey) throw new InternalServerErrorException('OPENAI_API_KEY is not set')
 
-    const model = 'gpt-4' // hoặc dùng pickModel('gpt-4') nếu bạn đã có helper
+    const model = 'gpt-4'
     const messages = [
       { role: 'system', content: contentGenerateCaption },
       {
@@ -627,20 +620,63 @@ Không trả thêm bất kỳ ký tự nào khác.`,
     }
   }
 
+  // 🟢🟢🟢 Multi-turn chat cho ChatWidget (Responses API GPT-5)
+  async chatWidget(
+    messages: { role: string; content: string }[],
+    previousResponseId?: string | null,
+  ) {
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) throw new InternalServerErrorException('OPENAI_API_KEY is not set')
+
+    const payload: any = {
+      model: 'gpt-5',
+      input: messages,
+    }
+
+    if (previousResponseId) {
+      payload.previous_response_id = previousResponseId
+    }
+
+    try {
+      const { data, headers, status } = await this.http.post(
+        '/responses',
+        payload,
+        { headers: this.buildHeaders(apiKey) },
+      )
+
+      const messagePart = data?.output?.find((o: any) => o.type === 'message')
+      const textPart = messagePart?.content?.find(
+        (c: any) => c.type === 'output_text',
+      )?.text
+
+      return {
+        ok: true,
+        reply: textPart || '',
+        responseId: data?.id ?? null,
+        usage: data?.usage ?? null,
+        model: data?.model ?? 'gpt-5',
+        requestId: headers?.['x-request-id'] ?? null,
+        status,
+      }
+    } catch (err: any) {
+      this.handleOpenAiError(err, 'chatWidget', {
+        messagesCount: messages?.length ?? 0,
+        hasPrev: !!previousResponseId,
+      })
+    }
+  }
+
   /** 🟢 Helper: log & chuẩn hoá lỗi OpenAI */
   private handleOpenAiError(err: any, funcName: string, meta?: Record<string, any>): never {
-    // Axios error shape
     const axErr = err as AxiosError<any>
     const status = axErr.response?.status
     const data = axErr.response?.data
     const rid = axErr.response?.headers?.['x-request-id']
     const durationMs = (axErr as any).__durationMs
 
-    // Thông điệp từ OpenAI (nếu có)
     const oaiMsg: string | undefined = data?.error?.message ?? data?.message ?? axErr.message ?? 'OpenAI request failed'
 
-    // Phân loại một số lỗi mạng phổ biến
-    const code = (axErr as any)?.code // 'ECONNABORTED', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNRESET'...
+    const code = (axErr as any)?.code
     const netHint =
       code === 'ECONNABORTED'
         ? 'Timeout'
@@ -652,7 +688,6 @@ Không trả thêm bất kỳ ký tự nào khác.`,
               ? 'Socket reset'
               : undefined
 
-    // Log chi tiết cho DevOps
     this.logger.error(
       [
         `OpenAI ERROR in ${funcName}`,
@@ -667,7 +702,6 @@ Không trả thêm bất kỳ ký tự nào khác.`,
         .join(' | '),
     )
 
-    // Map sang HTTP exception cho controller
     if (status === 400) throw new BadRequestException(`OpenAI 400: ${oaiMsg}`)
     if (status === 401) throw new BadRequestException('OpenAI 401: Invalid API key or permissions')
     if (status === 403) throw new BadRequestException('OpenAI 403: Forbidden')

@@ -16,31 +16,31 @@ export class OpenaiController {
     return this.aiService.analyzeTargeting(dto.prompt, user)
   }
 
-  /** 🟢 API rewrite content (copywriter GPT-4) */
+  /** 🟢 API rewrite content */
   @Post('rewrite')
   async rewrite(@Body('prompt') prompt: string) {
     return this.aiService.rewriteText(prompt)
   }
 
-  /** 🟢 API chấm điểm quảng cáo (GPT-4) */
+  /** 🟢 API chấm điểm quảng cáo */
   @Post('score-ad')
   async scoreAd(@Body('prompt') prompt: string) {
     return this.aiService.scoreAd(prompt)
   }
 
-  /** 🟢 API sinh nội dung general (GPT-4) */
+  /** 🟢 API sinh nội dung general */
   @Post('generate')
   async generate(@Body('prompt') prompt: string) {
     return this.aiService.generateText(prompt)
   }
 
-  /** 🟢 API simple chat từ 1 prompt (GPT-4) */
+  /** 🟢 API simple chat */
   @Post('simple-chat')
   async simpleChat(@Body('prompt') prompt: string) {
     return this.aiService.simpleChat(prompt)
   }
 
-  /** 🟢 API creative chat (GPT-4, temperature 0.9) */
+  /** 🟢 API creative chat */
   @Post('creative-chat')
   async creativeChat(@Body('prompt') prompt: string) {
     return this.aiService.creativeChat(prompt)
@@ -64,5 +64,19 @@ export class OpenaiController {
   @Post('prompt-chat')
   async promptChat(@Body('promptContent') promptContent: string) {
     return this.aiService.chatWithPrompt(promptContent)
+  }
+
+  // ----------------------------------------------------------
+  // 🟢🟢🟢 API MULTI-TURN CHATWIDGET (GPT-5 Responses API)
+  // ----------------------------------------------------------
+  @Post('chat-widget')
+  async chatWidget(
+    @Body()
+    body: {
+      messages: { role: string; content: string }[]
+      previousResponseId?: string | null
+    }
+  ) {
+    return this.aiService.chatWidget(body.messages, body.previousResponseId)
   }
 }
