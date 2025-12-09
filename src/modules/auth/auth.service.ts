@@ -14,8 +14,6 @@ export class AuthService {
     console.log('Registering trial account with data:', data)
     let user = await this.userRepo.createQueryBuilder().where('email =:email', { email: data.email }).getOne()
 
-    const saved = await this.userRepo.save(user)
-
     if (!user) {
       user = new User()
       user.username = data.fullName
