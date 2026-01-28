@@ -240,17 +240,17 @@ export class EmailService {
 
   private transporter = nodemailer.createTransport({
     service: 'gmail',
-    auth: { user: '2203viettt@gmail.com', pass: 'tpzhvdoemquprhlo' },
+    auth: { user: 'mrgroupads@gmail.com', pass: 'oocd rofb gykj mjwx' },
   })
 
   async sendMailPassword({ to, subject, html }: { to: string; subject: string; html: string }) {
-    return this.transporter.sendMail({ from: '2203viettt@gmail.com', to, subject, html })
+    return this.transporter.sendMail({ from: 'mrgroupads@gmail.com', to, subject, html })
   }
 
   async sendCredits(data: any, user: User) {
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
     const mailOptions = {
-      from: '2203viettt@gmail.com',
+      from: 'mrgroupads@gmail.com',
       to: 'nextadsai@gmail.com',
       subject: `Đã yêu cầu thanh toán 179k mua 500 credits`,
       html: `
@@ -276,7 +276,7 @@ export class EmailService {
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
     if (!userData) throw new Error('Không tìm thấy thông tin người dùng')
     const mailOptions = {
-      from: '2203viettt@gmail.com',
+      from: 'mrgroupads@gmail.com',
       to: 'nextadsai@gmail.com',
       subject: `Yêu cầu mua gói ${data.name}`,
       html: `
@@ -300,7 +300,7 @@ export class EmailService {
   async sendFormEmail(data: CreateEmailDto) {
     const { fullName, email, phone, zalo } = data
     const mailOptions = {
-      from: '2203viettt@gmail.com',
+      from: 'mrgroupads@gmail.com',
       to: 'nextadsai@gmail.com',
       subject: `Yêu cầu hỗ trợ từ ${fullName}`,
       html: `
@@ -816,7 +816,7 @@ ${JSON.stringify(targetingSummary.raw || {}, null, 2)}
           // Gửi mail
           if (ad.createdBy?.email) {
             await this.transporter.sendMail({
-              from: '2203viettt@gmail.com',
+              from: 'mrgroupads@gmail.com',
               to: ad.createdBy.email,
               subject: `📊 Báo cáo quảng cáo #${adId} - ${moment().format('YYYY-MM-DD')}`,
               html: htmlReport,
