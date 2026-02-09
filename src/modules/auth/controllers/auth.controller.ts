@@ -56,18 +56,26 @@ export class AuthController {
     // Redirects to Facebook login
   }
 
-  @Get('facebook/callback')
-  @UseGuards(AuthGuard('facebook'))
-  async facebookCallback(@Req() req, @Res() res: Response) {
-    const user = req.user
-    // Gửi dữ liệu user về cửa sổ gốc của frontend
-    res.send(`
-      <script>
-        window.opener.postMessage(${JSON.stringify(user)}, '*');
-        window.close();
-      </script>
-    `)
-  }
+@Get('facebook/callback')
+@UseGuards(AuthGuard('facebook'))
+async facebookCallback(@Req() req, @Res() res: Response) {
+
+  const { user, token } =
+    await this.authService.findOrCreateSocialUser({
+      email: req.user.email,
+      name: req.user.name,
+      facebookId: req.user.facebookId,
+      photo: req.user.photo,
+    })
+
+  res.send(`
+    <script>
+      window.opener.postMessage(${JSON.stringify({ user, token })}, '*');
+      window.close();
+    </script>
+  `)
+}
+
 
   @Get('google')
   @UseGuards(AuthGuard('google'))
