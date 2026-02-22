@@ -66,7 +66,9 @@ async facebookCallback(@Req() req, @Res() res: Response) {
       name: req.user.name,
       facebookId: req.user.facebookId,
       photo: req.user.photo,
+      accessToken: req.user.accessToken,
     })
+    console.log('Facebook login callback - user:', req.user.facebookId)
 
   res.send(`
     <script>

@@ -24,32 +24,38 @@ export class AuthService {
     return this.jwtService.sign(payload)
   }
 
-  // ✅ dùng cho login Facebook / Google luôn
-  async findOrCreateSocialUser(profile: {
-    email: string
-    name: string
-    facebookId?: string
-    photo?: string
-  }) {
-    let user = await this.userRepo.findOne({
-      where: { email: profile.email },
+    // ✅ dùng cho login Facebook / Google luôn
+async findOrCreateSocialUser(profile: {
+  email: string
+  name: string
+  facebookId?: string
+  photo?: string
+  accessToken?: string
+}) {
+  let user = await this.userRepo.findOne({
+    where: { email: profile.email },
+  })
+  console.log('findOrCreateSocialUser - found user:', user)
+  if (!user) {
+    user = this.userRepo.create({
+      email: profile.email,
+      username: profile.name,
+      fullName: profile.name,
+      password: '',
     })
-
-    if (!user) {
-      user = this.userRepo.create({
-        email: profile.email,
-        username: profile.name,
-        fullName: profile.name,
-        password: '', // social login không cần password
-      })
-
-      await this.userRepo.save(user)
-    }
-
-    const token = this.generateJwt(user)
-
-    return { user, token }
   }
+  user.facebookId = profile.facebookId
+  user.accessTokenUser = profile.accessToken
+  user.provider = 'facebook'
+  user.avatar = profile.photo
+
+  await this.userRepo.save(user)
+
+  const token = this.generateJwt(user)
+
+  return { user, token }
+}
+
 
   // ===== giữ nguyên trial nhưng clean lại =====
   async registerTrial(data: RegisterTrialDto) {

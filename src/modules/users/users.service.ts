@@ -10,6 +10,8 @@ import { UserSubscription } from '@models/user-subscription.entity'
 import { BuyPlanDto } from './dto/buy-plan.dto'
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto'
 import { EmailService } from 'src/email/email.service'
+import { SaveBusinessProfileDto } from './dto/user-create.dto'
+import { BusinessProfile } from '@models/business-profile.entity'
 
 @Injectable()
 export class UsersService {
@@ -22,6 +24,8 @@ export class UsersService {
     private readonly planRepo: Repository<SubscriptionPlan>,
     @InjectRepository(UserSubscription)
     private readonly userSubRepo: Repository<UserSubscription>,
+    @InjectRepository(BusinessProfile)
+    private readonly businessRepo: Repository<BusinessProfile>,
 
     private readonly mailerService: EmailService,
   ) {}
@@ -232,4 +236,30 @@ export class UsersService {
 
     return sub
   }
+
+  async getByUserId(userId: string) {
+  return this.businessRepo.findOne({
+    where: { user: { id: userId } },
+  })
+}
+
+  async saveOrUpdateProfile(userId: string, dto: SaveBusinessProfileDto) {
+  const user = await this.userRepo.findOne({ where: { id: userId } })
+
+  let profile = await this.businessRepo.findOne({
+    where: { user: { id: userId } },
+    relations: ['user'],
+  })
+
+  if (!profile) {
+    profile = this.businessRepo.create({
+      ...dto,
+      user,
+    })
+  } else {
+    Object.assign(profile, dto)
+  }
+
+  return this.businessRepo.save(profile)
+}
 }
