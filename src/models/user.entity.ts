@@ -7,6 +7,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger'
 import { UserSubscription } from './user-subscription.entity'
 import { FacebookCampaign } from './facebook_campaign.entity'
 import { BusinessProfile } from './business-profile.entity'
+import { InformationPost } from './information_post.entity'
 
 @Entity({ name: 'tbl_users' })
 export class User extends BaseEntity {
@@ -121,6 +122,9 @@ export class User extends BaseEntity {
 
   @OneToOne(() => BusinessProfile, (profile) => profile.user)
 businessProfile: BusinessProfile
+
+@OneToMany(() => InformationPost, (post) => post.user)
+informationPosts: InformationPost[]
 
   @BeforeInsert()
   @BeforeUpdate()

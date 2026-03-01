@@ -18,6 +18,23 @@ export class UserCreateDTO {
   password: string
 }
 
+export class CreateInformationPostDto {
+  @IsString()
+  postId: string
+
+  @IsOptional()
+  @IsString()
+  caption?: string
+
+  @IsOptional()
+  @IsString()
+  urlPost?: string
+
+  @IsOptional()
+  @IsString()
+  dataRewrite?: string
+}
+
 export class SaveBusinessProfileDto {
 
   @IsString()
@@ -51,4 +68,38 @@ export class SaveBusinessProfileDto {
   @IsString()
   @IsOptional()
   targetCustomer: string
+}
+
+export class UpdateBusinessProfileDto {
+  @IsOptional()
+  @IsString()
+  businessName?: string;
+
+  @IsOptional()
+  @IsString()
+  businessLocation?: string;
+
+  @IsOptional()
+  @IsArray()
+  businessFields?: { id: number; value: string }[];
+
+  @IsOptional()
+  @IsString()
+  salesType?: string;
+
+  @IsOptional()
+  @IsString()
+  selectedLocation?: string;
+
+  @IsOptional()
+  @IsString()
+  locationDetail?: string;
+
+  @IsOptional()
+  @IsString()
+  productService?: string;
+
+  @IsOptional()
+  @IsString()
+  targetCustomer?: string;
 }

@@ -16,12 +16,13 @@ import { CreditTransaction } from '@models/credit-ransaction .entity'
 import { SubscriptionPlan } from '@models/subscription-plan.entity'
 import { UserSubscription } from '@models/user-subscription.entity'
 import { BusinessProfile } from '@models/business-profile.entity'
+import { InformationPost } from '@models/information_post.entity'
 const CommandHandlers = [UpdateUserCommandHandler, UpdateUserGroupCommandHandler, CreateUserCommandHandler]
 const QueriesHandler = [GetUsersQueryHandler, FindOneUserQueryHandler]
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Role, Group, User, CreditTransaction, SubscriptionPlan, UserSubscription,BusinessProfile]),
+    TypeOrmModule.forFeature([Role, Group, User, CreditTransaction, SubscriptionPlan, UserSubscription,BusinessProfile,InformationPost]),
     CqrsModule,
     EmailModule,
   ],

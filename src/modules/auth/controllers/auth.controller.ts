@@ -93,7 +93,7 @@ async facebookCallback(@Req() req, @Res() res: Response) {
     if (user?.phone?.length == 0) {
       throw new BadRequestException('Tài khoản chưa đăng ký số điện thoại quay lại đăng ký')
     }
-    const token = await this.jwtService.signAsync({ email: req.user.email })
+    const token = this.authService.generateJwt(user)
 
     const htmlResponse = `
     <!DOCTYPE html>
