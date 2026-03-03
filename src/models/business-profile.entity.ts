@@ -19,8 +19,29 @@ export class BusinessProfile extends BaseEntity {
   @Column({ name: 'selected_location', nullable: true })
   selectedLocation: string
 
-  @Column({ name: 'location_detail', nullable: true })
-  locationDetail: string
+  // ❌ BỎ locationDetail
+  // @Column({ name: 'location_detail', nullable: true })
+  // locationDetail: string
+
+  // ✅ NEW: Locations bán hàng (ads)
+  @Column({ type: 'jsonb', nullable: true })
+  locations: {
+    key?: string
+    name?: string
+    latitude?: number
+    longitude?: number
+    radius?: number
+  }[]
+
+  // ✅ NEW: Địa điểm kinh doanh
+  @Column({ type: 'jsonb', nullable: true })
+  businessLocations: {
+    key?: string
+    name?: string
+    latitude?: number
+    longitude?: number
+    radius?: number
+  }[]
 
   @Column({ name: 'product_service', nullable: true })
   productService: string

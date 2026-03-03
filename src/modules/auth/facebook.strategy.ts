@@ -11,13 +11,7 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
       clientSecret: configService.get<string>('FACEBOOK_APP_SECRET'),
       callbackURL: `${process.env.FACEBOOK_CALLBACK_URL}`,
       profileFields: ['id', 'displayName', 'photos', 'email'],
-      scope: [
-  'email',
-  // 'pages_show_list',
-  // 'pages_read_engagement',
-  // 'ads_management',
-  // 'ads_read',
-]
+      scope: ['public_profile', 'email']
 
     })
   }

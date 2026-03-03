@@ -36,70 +36,105 @@ export class CreateInformationPostDto {
 }
 
 export class SaveBusinessProfileDto {
-
-  @IsString()
   @IsOptional()
-  businessName: string
-
   @IsString()
-  @IsOptional()
-  businessLocation: string
+  businessName?: string
 
+  @IsOptional()
+  @IsString()
+  businessLocation?: string
+
+  @IsOptional()
   @IsArray()
-  @IsOptional()
-  businessFields: { id: number; value: string }[]
+  businessFields?: { id: number; value: string }[]
 
-  @IsString()
   @IsOptional()
-  salesType: string
+  @IsString()
+  salesType?: string
 
-  @IsString()
   @IsOptional()
-  selectedLocation: string
+  @IsString()
+  selectedLocation?: string
 
-  @IsString()
+  // 🔥 ADD CÁI NÀY
   @IsOptional()
-  locationDetail: string
+  @IsArray()
+  locations?: {
+    key?: string
+    name?: string
+    latitude?: number
+    longitude?: number
+    radius?: number
+  }[]
 
-  @IsString()
+  // 🔥 ADD CÁI NÀY
   @IsOptional()
-  productService: string
+  @IsArray()
+  businessLocations?: {
+    key?: string
+    name?: string
+    latitude?: number
+    longitude?: number
+    radius?: number
+  }[]
 
-  @IsString()
   @IsOptional()
-  targetCustomer: string
+  @IsString()
+  productService?: string
+
+  @IsOptional()
+  @IsString()
+  targetCustomer?: string
 }
 
 export class UpdateBusinessProfileDto {
-  @IsOptional()
+   @IsOptional()
   @IsString()
-  businessName?: string;
+  businessName?: string
 
   @IsOptional()
   @IsString()
-  businessLocation?: string;
+  businessLocation?: string
 
   @IsOptional()
   @IsArray()
-  businessFields?: { id: number; value: string }[];
+  businessFields?: { id: number; value: string }[]
 
   @IsOptional()
   @IsString()
-  salesType?: string;
+  salesType?: string
 
   @IsOptional()
   @IsString()
-  selectedLocation?: string;
+  selectedLocation?: string
+
+  // 🔥 ADD CÁI NÀY
+  @IsOptional()
+  @IsArray()
+  locations?: {
+    key?: string
+    name?: string
+    latitude?: number
+    longitude?: number
+    radius?: number
+  }[]
+
+  // 🔥 ADD CÁI NÀY
+  @IsOptional()
+  @IsArray()
+  businessLocations?: {
+    key?: string
+    name?: string
+    latitude?: number
+    longitude?: number
+    radius?: number
+  }[]
 
   @IsOptional()
   @IsString()
-  locationDetail?: string;
+  productService?: string
 
   @IsOptional()
   @IsString()
-  productService?: string;
-
-  @IsOptional()
-  @IsString()
-  targetCustomer?: string;
+  targetCustomer?: string
 }
