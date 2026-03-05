@@ -503,56 +503,33 @@ Hãy gợi ý 5 interest broad phổ biến nhất, dễ target, liên quan sả
   }
 
   /** ===================== Upload ảnh ===================== */
-  private async uploadAdImageFromUrl(adAccountId: string, imageUrl: string, fb: AxiosInstance): Promise<string> {
-    const parseHash = (data: any): string | undefined => {
-      try {
-        const images = data?.images
-        if (!images) return
-        const firstKey = Object.keys(images)[0]
-        return images[firstKey]?.hash
-      } catch {
-        return
-      }
-    }
+ private async uploadAdImageFromUrl(
+  adAccountId: string,
+  imageUrl: string,
+  fb: AxiosInstance,
+): Promise<string> {
+  const res = await fb.post(
+    `/${adAccountId}/adimages`,
+    qs.stringify({
+      url: imageUrl,
+    }),
+    {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    },
+  )
 
-    try {
-      this.logger.log(`STEP uploadImage by URL → POST /${adAccountId}/adimages (url)`)
-      const res = await fb.post(`/${adAccountId}/adimages`, qs.stringify({ url: imageUrl }), {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeout: 15_000,
-      })
-      const hash = parseHash(res.data)
-      if (hash) return hash
-    } catch { }
+  const images = res.data?.images
+  const firstKey = images && Object.keys(images)[0]
+  const hash = firstKey && images[firstKey]?.hash
 
-    try {
-      this.logger.log(`STEP uploadImage multipart → GET ${imageUrl}`)
-      const imgResp = await axios.get(imageUrl, {
-        responseType: 'arraybuffer',
-        headers: { 'User-Agent': 'Mozilla/5.0' },
-        timeout: 20_000,
-        maxRedirects: 3,
-        validateStatus: (s) => s >= 200 && s < 400,
-      })
-
-      const form = new FormData()
-      const contentType = imgResp.headers['content-type'] || 'image/jpeg'
-      const filename = `adimage.${contentType.includes('png') ? 'png' : 'jpg'}`
-      form.append('source', Buffer.from(imgResp.data), { filename, contentType })
-
-      this.logger.log(`STEP uploadImage multipart → POST /${adAccountId}/adimages`)
-      const uploadRes = await fb.post(`/${adAccountId}/adimages`, form, { headers: form.getHeaders(), timeout: 20_000 })
-      const images = uploadRes?.data?.images
-      if (!images) throw new Error('Không lấy được image_hash (multipart).')
-      const firstKey = Object.keys(images)[0]
-      const hash = images[firstKey]?.hash
-      if (!hash) throw new Error('Không lấy được image_hash (multipart).')
-      return hash
-    } catch (e: any) {
-      const reason = e?.response?.data?.error?.error_user_msg || e?.response?.data?.error?.message || e?.message
-      throw new BadRequestException(`Upload ảnh thất bại (multipart): ${reason}`)
-    }
+  if (!hash) {
+    throw new Error('Upload image failed: no hash returned')
   }
+
+  return hash
+}
 
   async createFacebookAd(dto0: CreateFacebookAdDto, user: User) {
     type LocalDto = AnyDto & {

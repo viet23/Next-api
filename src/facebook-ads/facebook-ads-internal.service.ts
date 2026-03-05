@@ -694,7 +694,8 @@ export class FacebookAdsInternalService {
     }
 
     const createCreativeForTraffic = async (imageUrl: string, message: string) => {
-      const link = (dto.urlWebsite || '').trim()
+      try {
+        const link = (dto.urlWebsite || '').trim()
       if (!/^https?:\/\//i.test(link) || /facebook\.com|fb\.com/i.test(link)) {
         throw new BadRequestException('urlWebsite không hợp lệ cho LINK_CLICKS (phải là link ngoài Facebook).')
       }
@@ -713,6 +714,11 @@ export class FacebookAdsInternalService {
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       )
       return res.data.id as string
+        } catch (err: any) {
+  console.log(err.response?.data)
+  throw err
+}
+      
     }
 
     const createCreativeForEngagement = async (postId: string) => {
@@ -1221,55 +1227,99 @@ export class FacebookAdsInternalService {
   }
 
   /** ===================== Ad ===================== */
-  private async createAd(
-    dto0: CreateFacebookAdDto,
-    adSetId: string,
-    creativeId: string,
-    adAccountId: string,
-    usedCampaignId?: string,
-    pageId?: string,
-    fb?: AxiosInstance,
-  ) {
-    const dto = dto0 as AnyDto
-    if (!fb) throw new InternalServerErrorException('FB client missing')
-    try {
-      this.logger.log(`STEP createAd → POST /${adAccountId}/ads`)
-      const res = await fb.post(`/${adAccountId}/ads`, null, {
-        params: {
-          name: dto.campaignName,
-          adset_id: adSetId,
-          creative: JSON.stringify({ creative_id: creativeId }),
-          status: 'PAUSED',
-        },
-      })
-      const adId = res.data.id
-      this.logger.log(`✅ Ad created: ${adId}`)
-      await this.activateAd(adId, fb)
-      return res.data
-    } catch (error: any) {
-      this.logMetaAxiosError('POST /ads', error)
-      const err = error?.response?.data?.error
-      const sub = err?.error_subcode
-      const msg = err?.error_user_msg || err?.message || ''
+ private async createAd(
+  dto0: CreateFacebookAdDto,
+  adSetId: string,
+  creativeId: string,
+  adAccountId: string,
+  usedCampaignId?: string,
+  pageId?: string,
+  fb?: AxiosInstance,
+) {
+  const dto = dto0 as AnyDto
+  if (!fb) throw new InternalServerErrorException('FB client missing')
 
-      if ((sub === 1487888 || /pixel|theo dõi|tracking/i.test(msg)) && dto.goal !== AdsGoal.MESSAGE && pageId) {
-        try {
-          const fallback = await this.createAwarenessFallbackAndAd(dto as AnyDto, adAccountId, pageId, creativeId, fb!)
-          await this.activateCampaign(fallback.fbCampaignId, fb!)
-          await this.activateAdSet(fallback.fbAdSetId, fb!)
-          await this.activateAd(fallback.ad.id, fb!)
-          return fallback.ad
-        } catch (e: any) {
-          const m = e?.response?.data?.error?.error_user_msg || e.message
-          throw new BadRequestException(`Tạo quảng cáo thất bại (fallback Awareness): ${m}`)
-        }
-      }
+  try {
+    this.logger.log(`STEP createAd → POST /${adAccountId}/ads`)
+    this.logger.log(`creativeId = ${creativeId}`)
 
-      const message = err?.error_user_msg || err?.message
-      this.logger.error('❌ Ad creation error:', error?.response?.data || error)
-      throw new BadRequestException(`Tạo quảng cáo thất bại: ${message}`)
+    if (!creativeId) {
+      throw new Error('creativeId is missing')
     }
+
+    const res = await fb.post(
+  `/${adAccountId}/ads`,
+  {
+    name: dto.campaignName,
+    adset_id: adSetId,
+    creative: {
+      creative_id: creativeId,
+    },
+    status: 'PAUSED',
   }
+)
+
+this.logger.log('RAW createAd response:', JSON.stringify(res.data))
+
+if (!res?.data?.id) {
+  this.logger.error('Create Ad FAILED:', res.data)
+  throw new Error('Facebook did not return ad id')
+}
+
+const adId = res.data.id
+this.logger.log(`✅ Ad created: ${adId}`)
+
+    if (!adId) {
+      throw new Error(
+        `Create Ad failed - no id returned. Response: ${JSON.stringify(res.data)}`
+      )
+    }
+
+    this.logger.log(`✅ Ad created: ${adId}`)
+
+    await this.activateAd(adId, fb)
+
+    return res.data
+  } catch (error: any) {
+    this.logMetaAxiosError('POST /ads', error)
+
+    const err = error?.response?.data?.error
+    const sub = err?.error_subcode
+    const msg = err?.error_user_msg || err?.message || ''
+
+    if (
+      (sub === 1487888 || /pixel|theo dõi|tracking/i.test(msg)) &&
+      dto.goal !== AdsGoal.MESSAGE &&
+      pageId
+    ) {
+      try {
+        const fallback = await this.createAwarenessFallbackAndAd(
+          dto as AnyDto,
+          adAccountId,
+          pageId,
+          creativeId,
+          fb!
+        )
+
+        await this.activateCampaign(fallback.fbCampaignId, fb!)
+        await this.activateAdSet(fallback.fbAdSetId, fb!)
+        await this.activateAd(fallback.ad.id, fb!)
+
+        return fallback.ad
+      } catch (e: any) {
+        const m =
+          e?.response?.data?.error?.error_user_msg || e.message
+        throw new BadRequestException(
+          `Tạo quảng cáo thất bại (fallback Awareness): ${m}`
+        )
+      }
+    }
+
+    const message = err?.error_user_msg || err?.message
+    this.logger.error('❌ Ad creation error:', error?.response?.data || error)
+    throw new BadRequestException(`Tạo quảng cáo thất bại: ${message}`)
+  }
+}
 
   private async activateCampaign(campaignId: string, fb: AxiosInstance) {
     this.logger.log(`STEP activateCampaign → POST /${campaignId}`)
