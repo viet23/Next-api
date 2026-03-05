@@ -10,6 +10,9 @@ import { UserSubscription } from '@models/user-subscription.entity'
 import { BuyPlanDto } from './dto/buy-plan.dto'
 import { ConfirmPaymentDto } from './dto/confirm-payment.dto'
 import { EmailService } from 'src/email/email.service'
+import { CreateInformationPostDto, SaveBusinessProfileDto, UpdateBusinessProfileDto } from './dto/user-create.dto'
+import { BusinessProfile } from '@models/business-profile.entity'
+import { InformationPost } from '@models/information_post.entity'
 
 @Injectable()
 export class UsersService {
@@ -22,6 +25,10 @@ export class UsersService {
     private readonly planRepo: Repository<SubscriptionPlan>,
     @InjectRepository(UserSubscription)
     private readonly userSubRepo: Repository<UserSubscription>,
+    @InjectRepository(BusinessProfile)
+    private readonly businessRepo: Repository<BusinessProfile>,
+    @InjectRepository(InformationPost)
+    private readonly informationPostRepository: Repository<InformationPost>,
 
     private readonly mailerService: EmailService,
   ) {}
@@ -232,4 +239,75 @@ export class UsersService {
 
     return sub
   }
+
+  async getByUserId(userId: string) {
+  return this.businessRepo.findOne({
+    where: { user: { id: userId } },
+    relations: ['user'],
+  })
 }
+
+async getPostByUserId(userId: string) {
+  return this.informationPostRepository.findOne({
+    where: { user: { id: userId } },
+    relations: ['user'],
+  });
+}
+
+  async saveOrUpdateProfile(userId: string, dto: SaveBusinessProfileDto) {
+  const user = await this.userRepo.findOne({ where: { id: userId } })
+
+  let profile = await this.businessRepo.findOne({
+    where: { user: { id: userId } },
+    relations: ['user'],
+  })
+
+  if (!profile) {
+    profile = this.businessRepo.create({
+      ...dto,
+      user,
+    })
+  } else {
+    Object.assign(profile, dto)
+  }
+
+  return this.businessRepo.save(profile)
+}
+
+async updateBusinessProfile(userId: string, dto: UpdateBusinessProfileDto) {
+  const profile = await this.businessRepo.findOne({
+    where: { user: { id: userId } },
+    relations: ['user'],
+  });
+  console.log(`updateBusinessProfile`, userId, dto, profile)
+
+  if (!profile) {
+    throw new NotFoundException('Business profile not found');
+  }
+
+  Object.assign(profile, dto);
+
+  return this.businessRepo.save(profile);
+}
+
+async create(dto: CreateInformationPostDto, userId: string) {
+
+  const user = await this.userRepo.findOne({
+    where: { id: userId },
+  })
+
+  if (!user) {
+    throw new NotFoundException('User not found')
+  }
+
+  const post = this.informationPostRepository.create({
+    ...dto,
+    user: user, 
+  })
+
+  return this.informationPostRepository.save(post)
+}
+  
+}
+
+

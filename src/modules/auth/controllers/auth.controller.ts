@@ -56,18 +56,28 @@ export class AuthController {
     // Redirects to Facebook login
   }
 
-  @Get('facebook/callback')
-  @UseGuards(AuthGuard('facebook'))
-  async facebookCallback(@Req() req, @Res() res: Response) {
-    const user = req.user
-    // Gửi dữ liệu user về cửa sổ gốc của frontend
-    res.send(`
-      <script>
-        window.opener.postMessage(${JSON.stringify(user)}, '*');
-        window.close();
-      </script>
-    `)
-  }
+@Get('facebook/callback')
+@UseGuards(AuthGuard('facebook'))
+async facebookCallback(@Req() req, @Res() res: Response) {
+
+  const { user, token } =
+    await this.authService.findOrCreateSocialUser({
+      email: req.user.email,
+      name: req.user.name,
+      facebookId: req.user.facebookId,
+      photo: req.user.photo,
+      accessToken: req.user.accessToken,
+    })
+    console.log('Facebook login callback - user:', req.user.facebookId)
+
+  res.send(`
+    <script>
+      window.opener.postMessage(${JSON.stringify({ user, token })}, '*');
+      window.close();
+    </script>
+  `)
+}
+
 
   @Get('google')
   @UseGuards(AuthGuard('google'))
@@ -83,7 +93,7 @@ export class AuthController {
     if (user?.phone?.length == 0) {
       throw new BadRequestException('Tài khoản chưa đăng ký số điện thoại quay lại đăng ký')
     }
-    const token = await this.jwtService.signAsync({ email: req.user.email })
+    const token = this.authService.generateJwt(user)
 
     const htmlResponse = `
     <!DOCTYPE html>

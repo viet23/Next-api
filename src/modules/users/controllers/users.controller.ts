@@ -8,6 +8,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common'
 import { ApiBody, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger'
@@ -25,7 +26,7 @@ import { FindOneUserQuery } from '../cqrs/queries/impl/find-one-user.query'
 import { User } from '@models/user.entity'
 import { UpdateUserGroupDto } from '../dto/update-user-group.dto'
 import { UpdateUserGroupCommand } from '../cqrs/commands/impl/update-user-group.command'
-import { UserCreateDTO } from '../dto/user-create.dto'
+import { CreateInformationPostDto, SaveBusinessProfileDto, UpdateBusinessProfileDto, UserCreateDTO } from '../dto/user-create.dto'
 import { CreateUserCommand } from '../cqrs/commands/impl/create-user.command'
 import { UsersService } from '../users.service'
 import { ForgotPasswordDto } from '../dto/forgot-password.dto'
@@ -38,6 +39,7 @@ import { UserDataSyncDto } from '../dto/user-data-sync.dto'
 import { Authen } from '@decorators/authen.decorator'
 import { BuyPlanDto } from '../dto/buy-plan.dto'
 import { ConfirmPaymentDto } from '../dto/confirm-payment.dto'
+import { AuthGuard } from '@nestjs/passport'
 
 class CheckTokenDto {
   token: string
@@ -60,6 +62,30 @@ export class UsersController {
     const { filter } = query
     return this.queryBus.execute(new GetUsersQuery(filter))
   }
+
+@UseGuards(JwtAuthGuard)
+@Get('information-post')
+async getInformationPost(@Req() req) {
+  return this.usersService.getPostByUserId(req.user.sub)
+}
+
+@UseGuards(JwtAuthGuard)
+@Get('business-profile')
+async getProfile(@Req() req) {
+  return this.usersService.getByUserId(req.user.sub)
+}
+
+
+@UseGuards(JwtAuthGuard)
+@Put('business-profile')
+async updateBusinessProfile(
+  @Req() req: any,
+  @Body() dto: UpdateBusinessProfileDto,
+) {
+  const userId = req.user.sub;
+
+  return this.usersService.updateBusinessProfile(userId, dto);
+}
 
   @Get(':id')
   // @Roles(RoleEnum.GET_USERS)
@@ -157,4 +183,29 @@ export class UsersController {
   async getCurrentPlan(@Authen() user: User) {
     return this.usersService.getCurrentPlan(user)
   }
+
+
+
+@UseGuards(JwtAuthGuard)
+@Post('business-profile')
+async saveProfile(
+  @Req() req,
+  @Body() dto: SaveBusinessProfileDto
+) {
+  console.log(`SaveBusinessProfileDto`, req.user.sub)
+  return this.usersService.saveOrUpdateProfile(req.user.sub, dto)
+}
+
+
+
+@UseGuards(JwtAuthGuard)
+@Post('information-post')
+  async create(
+    @Body() dto: CreateInformationPostDto,
+    @Req() req: any,
+  ) {
+    console.log(`SaveBusinessProfileDto`, req.user.sub)
+    return this.usersService.create(dto, req.user.sub)
+  }
+
 }

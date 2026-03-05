@@ -3,29 +3,79 @@ import { RegisterTrialDto } from './dto/register-trial.dto'
 import { Repository } from 'typeorm'
 import { InjectRepository } from '@nestjs/typeorm'
 import { User } from '@models/user.entity'
+import { JwtService } from '@nestjs/jwt'
 
 @Injectable()
 export class AuthService {
-  constructor(@InjectRepository(User) private readonly userRepo: Repository<User>) {}
-  async registerTrial(data: RegisterTrialDto) {
-    // Ví dụ: gọi API ngoài hoặc lưu vào DB
-    // Ở đây mình mock lại response
+  constructor(
+    @InjectRepository(User) 
+    private readonly userRepo: Repository<User>,
+    private readonly jwtService: JwtService, // 👈 thêm cái này
+  ) {}
 
-    console.log('Registering trial account with data:', data)
-    let user = await this.userRepo.createQueryBuilder().where('email =:email', { email: data.email }).getOne()
-
-    if (!user) {
-      user = new User()
-      user.username = data.fullName
-      user.fullName = data.fullName
-      user.password = 'Ads@123456' // Mật khẩu mặc định cho tài khoản thử nghiệm
-      user.email = data.email
-      user.phone = data.phone
-      const saved = await this.userRepo.save(user)
-      console.log('saved', saved)
+  // ✅ JWT generator
+  generateJwt(user: User) {
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      username: user.username,
     }
 
-    if (user && (!user.phone || user.phone.length == 0)) {
+    return this.jwtService.sign(payload)
+  }
+
+    // ✅ dùng cho login Facebook / Google luôn
+async findOrCreateSocialUser(profile: {
+  email: string
+  name: string
+  facebookId?: string
+  photo?: string
+  accessToken?: string
+}) {
+  let user = await this.userRepo.findOne({
+    where: { email: profile.email },
+  })
+  console.log('findOrCreateSocialUser - found user:', user)
+  if (!user) {
+    user = this.userRepo.create({
+      email: profile.email,
+      username: profile.name,
+      fullName: profile.name,
+      password: '',
+    })
+  }
+  user.facebookId = profile.facebookId
+  user.accessTokenUser = profile.accessToken
+  user.provider = 'facebook'
+  user.avatar = profile.photo
+
+  await this.userRepo.save(user)
+
+  const token = this.generateJwt(user)
+
+  return { user, token }
+}
+
+
+  // ===== giữ nguyên trial nhưng clean lại =====
+  async registerTrial(data: RegisterTrialDto) {
+    let user = await this.userRepo.findOne({
+      where: { email: data.email },
+    })
+
+    if (!user) {
+      user = this.userRepo.create({
+        username: data.fullName,
+        fullName: data.fullName,
+        password: 'Ads@123456',
+        email: data.email,
+        phone: data.phone,
+      })
+
+      await this.userRepo.save(user)
+    }
+
+    if (!user.phone) {
       user.phone = data.phone
       await this.userRepo.save(user)
     }
@@ -33,7 +83,6 @@ export class AuthService {
     return {
       success: true,
       message: 'Trial account registered successfully',
-      data,
     }
   }
 }

@@ -31,21 +31,33 @@ export class FacebookPostService {
   }
 
   async findAll(query: QueryFacebookPostDto) {
-    const { page = 1, limit = 20, search } = query
-    const where = search ? [{ postId: ILike(`%${search}%`) }, { urlPost: ILike(`%${search}%`) }] : undefined
+  const page = query.page ?? 1
+  const limit = query.limit ?? 1 // 🔥 mặc định 1 thay vì 20
 
-    const [data, total] = await this.repo.findAndCount({
-      where,
-      order: { createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    })
+  const where = query.search
+    ? [
+        { postId: ILike(`%${query.search}%`) },
+        { urlPost: ILike(`%${query.search}%`) },
+      ]
+    : undefined
 
-    return {
-      data,
-      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
-    }
+  const [data, total] = await this.repo.findAndCount({
+    where,
+    order: { createdAt: 'DESC' },
+    skip: (page - 1) * limit,
+    take: limit,
+  })
+
+  return {
+    data,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
   }
+}
 
   async findOne(id: string) {
     const found = await this.repo.findOne({ where: { postId: id } })

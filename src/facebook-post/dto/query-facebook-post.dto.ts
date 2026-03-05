@@ -17,7 +17,7 @@ export class QueryFacebookPostDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  limit?: number = 20
+  limit?: number = 1
 
   // có thể thêm sort sau nếu cần
 }
