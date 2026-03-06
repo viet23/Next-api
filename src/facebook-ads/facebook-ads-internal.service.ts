@@ -719,6 +719,11 @@ export class FacebookAdsInternalService {
   throw err
 }
       
+        } catch (err: any) {
+  console.log(err.response?.data)
+  throw err
+}
+      
     }
 
     const createCreativeForEngagement = async (postId: string) => {
@@ -1287,6 +1292,33 @@ this.logger.log(`✅ Ad created: ${adId}`)
     const sub = err?.error_subcode
     const msg = err?.error_user_msg || err?.message || ''
 
+    if (
+      (sub === 1487888 || /pixel|theo dõi|tracking/i.test(msg)) &&
+      dto.goal !== AdsGoal.MESSAGE &&
+      pageId
+    ) {
+      try {
+        const fallback = await this.createAwarenessFallbackAndAd(
+          dto as AnyDto,
+          adAccountId,
+          pageId,
+          creativeId,
+          fb!
+        )
+
+        await this.activateCampaign(fallback.fbCampaignId, fb!)
+        await this.activateAdSet(fallback.fbAdSetId, fb!)
+        await this.activateAd(fallback.ad.id, fb!)
+
+        return fallback.ad
+      } catch (e: any) {
+        const m =
+          e?.response?.data?.error?.error_user_msg || e.message
+        throw new BadRequestException(
+          `Tạo quảng cáo thất bại (fallback Awareness): ${m}`
+        )
+      }
+    }
     if (
       (sub === 1487888 || /pixel|theo dõi|tracking/i.test(msg)) &&
       dto.goal !== AdsGoal.MESSAGE &&
