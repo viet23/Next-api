@@ -345,12 +345,13 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
     const userData = await this.userRepo.findOne({ where: { email: user.email } })
 
     /** 1) Lấy campaign (kèm ads) */
-    const qb = this.facebookCampaignRepo
-      .createQueryBuilder('campaign')
-      .leftJoinAndSelect('campaign.createdBy', 'createdBy')
-      .leftJoinAndSelect('campaign.ads', 'ads')
-      .where('createdBy.id = :uid', { uid: userData?.id })
-      .orderBy('campaign.createdAt', 'DESC')
+const qb = this.facebookCampaignRepo
+  .createQueryBuilder('campaign')
+  .leftJoinAndSelect('campaign.createdBy', 'createdBy')
+  .leftJoinAndSelect('campaign.ads', 'ads')
+  .where('createdBy.id = :uid', { uid: userData?.id })
+  .andWhere('campaign.id != :refId', { refId: -1 })
+  .orderBy('campaign.createdAt', 'DESC')
 
     let page = 1
     let pageSize = 10
@@ -698,8 +699,9 @@ export class GetFacebookAdsQueryHandler implements IQueryHandler<GetFacebookAdsQ
       const data = [...dataFromCampaigns]
       if (syntheticCampaign) data.push(syntheticCampaign)
       if (accountAllCampaign) data.push(accountAllCampaign)
-      const total = campaignTotal + (syntheticCampaign ? 1 : 0) + (accountAllCampaign ? 1 : 0)
-      return { data, total, page, pageSize }
+      const total = campaignTotal + (syntheticCampaign ? 1 : 0)
+     
+      return { data : campaigns.filter(c => c.id !== -1) , total , page, pageSize }
     }
 
     /** ======= EXTERNAL: per-ad (có cookie nếu có) ======= */

@@ -652,27 +652,67 @@ Hãy gợi ý 5 interest broad phổ biến nhất, dễ target, liên quan sả
       return res.data.id as string
     }
 
-    const createCreativeForTraffic = async (imageUrl: string, message: string) => {
-      const link = (dto.urlWebsite || '').trim()
-      if (!/^https?:\/\//i.test(link) || /facebook\.com|fb\.com/i.test(link)) {
-        throw new BadRequestException('urlWebsite không hợp lệ cho LINK_CLICKS (phải là link ngoài Facebook).')
-      }
-      const imgHash = await this.uploadAdImageFromUrl(adAccountId, imageUrl, fb)
-      const link_data: any = {
-        link,
-        message: message || '',
-        image_hash: imgHash,
-        call_to_action: { type: 'LEARN_MORE', value: { link } },
-      }
-      const object_story_spec = { page_id: pageId, link_data }
+    const createCreativeForTraffic = async (
+  imageUrl?: string,
+  message?: string,
+  postId?: string,
+) => {
 
-      const res = await fb.post(
-        `/${adAccountId}/adcreatives`,
-        qs.stringify({ name: dto.campaignName, object_story_spec: JSON.stringify(object_story_spec) }),
-        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
-      )
-      return res.data.id as string
-    }
+  // nếu dùng post có sẵn
+  if (postId) {
+    const res = await fb.post(
+      `/${adAccountId}/adcreatives`,
+      qs.stringify({
+        name: dto.campaignName,
+        object_story_id: postId,
+      }),
+      {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      },
+    )
+
+    return res.data.id as string
+  }
+
+  // nếu tạo ad mới bằng ảnh
+  const link = (dto.urlWebsite || '').trim()
+
+  if (!/^https?:\/\//i.test(link)) {
+    throw new BadRequestException('urlWebsite không hợp lệ cho TRAFFIC')
+  }
+
+  if (!imageUrl) {
+    throw new BadRequestException('Thiếu imageUrl cho TRAFFIC')
+  }
+
+  const imgHash = await this.uploadAdImageFromUrl(adAccountId, imageUrl, fb)
+
+  const object_story_spec = {
+    page_id: pageId,
+    link_data: {
+      link,
+      message: message || '',
+      image_hash: imgHash,
+      call_to_action: {
+        type: 'LEARN_MORE',
+        value: { link },
+      },
+    },
+  }
+
+  const res = await fb.post(
+    `/${adAccountId}/adcreatives`,
+    qs.stringify({
+      name: dto.campaignName,
+      object_story_spec: JSON.stringify(object_story_spec),
+    }),
+    {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    },
+  )
+
+  return res.data.id as string
+}
 
     const createCreativeForEngagement = async (postId: string) => {
       const res = await fb.post(
@@ -724,22 +764,72 @@ Hãy gợi ý 5 interest broad phổ biến nhất, dễ target, liên quan sả
           items.push({ kind: 'MESSAGE', imageUrl: dto.imageUrl, message: dto.caption || '' })
         }
       }
-    } else if (dto.goal === AdsGoal.TRAFFIC) {
-      const images = Array.isArray(dto.images) ? dto.images : []
-      const contents = Array.isArray(dto.contents) ? dto.contents : []
-      const n = Math.min(images.length, Math.max(contents.length, images.length))
-      if (n > 0) {
-        for (let i = 0; i < n; i++) {
-          const img = images[i] ?? images[0]
-          const msg = (contents[i] ?? contents[0] ?? dto.caption ?? '').toString()
-          if (!img) continue
-          items.push({ kind: 'TRAFFIC', imageUrl: img, message: msg })
-        }
-      } else {
-        if (!dto.imageUrl) throw new BadRequestException(`Thiếu 'images[]' (hoặc 'imageUrl') cho TRAFFIC`)
-        items.push({ kind: 'TRAFFIC', imageUrl: dto.imageUrl, message: dto.caption || '' })
-      }
+   } else if (dto.goal === AdsGoal.TRAFFIC) {
+
+  const poolFromSelected =
+    Array.isArray(dto.selectedPosts) && dto.selectedPosts.length
+      ? dto.selectedPosts.map((p) => ({
+          postId: p.id,
+          caption: p.caption || '',
+          urlPost: p.permalink_url,
+        }))
+      : []
+
+  const poolFromIds =
+    Array.isArray(dto.postIds) && dto.postIds.length
+      ? dto.postIds.map((id) => ({
+          postId: id,
+          caption: '',
+          urlPost: undefined,
+        }))
+      : []
+
+  const pool = poolFromSelected.length ? poolFromSelected : poolFromIds
+
+  // nếu chạy từ post
+  if (pool.length) {
+    for (const p of pool) {
+      items.push({
+        kind: 'TRAFFIC',
+        postId: p.postId,
+        message: p.caption,
+        urlPost: p.urlPost,
+      } as any)
     }
+  } else {
+
+    // fallback dùng ảnh
+    const images = Array.isArray(dto.images) ? dto.images : []
+    const contents = Array.isArray(dto.contents) ? dto.contents : []
+
+    const n = Math.min(images.length, Math.max(contents.length, images.length))
+
+    if (n > 0) {
+      for (let i = 0; i < n; i++) {
+        const img = images[i] ?? images[0]
+        const msg = (contents[i] ?? contents[0] ?? dto.caption ?? '').toString()
+
+        if (!img) continue
+
+        items.push({
+          kind: 'TRAFFIC',
+          imageUrl: img,
+          message: msg,
+        })
+      }
+    } else {
+      if (!dto.imageUrl) {
+        throw new BadRequestException(`Thiếu imageUrl cho TRAFFIC`)
+      }
+
+      items.push({
+        kind: 'TRAFFIC',
+        imageUrl: dto.imageUrl,
+        message: dto.caption || '',
+      })
+    }
+  }
+}
 
     if (!items.length) throw new BadRequestException('Không tìm thấy item nào để tạo quảng cáo.')
 

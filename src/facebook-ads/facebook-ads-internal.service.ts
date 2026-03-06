@@ -696,9 +696,9 @@ export class FacebookAdsInternalService {
     const createCreativeForTraffic = async (imageUrl: string, message: string) => {
       try {
         const link = (dto.urlWebsite || '').trim()
-      if (!/^https?:\/\//i.test(link) || /facebook\.com|fb\.com/i.test(link)) {
-        throw new BadRequestException('urlWebsite không hợp lệ cho LINK_CLICKS (phải là link ngoài Facebook).')
-      }
+      // if (!/^https?:\/\//i.test(link) || /facebook\.com|fb\.com/i.test(link)) {
+      //   throw new BadRequestException('urlWebsite không hợp lệ cho LINK_CLICKS (phải là link ngoài Facebook).')
+      // }
       const imgHash = await this.uploadAdImageFromUrl(adAccountId, imageUrl, fb)
       const link_data: any = {
         link,
